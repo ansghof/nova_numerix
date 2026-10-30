@@ -13,7 +13,7 @@ use crate::player::Player;
 use crate::rng::Rng;
 use crate::shots::Hostile;
 use crate::task::PendingTasks;
-use crate::{GamePhase, Gameplay, HALF_HEIGHT, HALF_WIDTH};
+use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield};
 
 pub const CHARGES_PER_LEVEL: u8 = 3;
 /// Schaden einer Fehlzündung oder einer zu langsamen Antwort.
@@ -108,6 +108,7 @@ fn launch(
 fn expand(
     mut commands: Commands,
     time: Res<Time>,
+    field: Res<Playfield>,
     mut particles: ResMut<Particles>,
     mut rng: ResMut<Rng>,
     mut waves: Query<(Entity, &mut Shockwave, &Transform)>,
@@ -127,7 +128,7 @@ fn expand(
         for (enemy_entity, mut enemy, enemy_transform) in &mut enemies {
             let pos = enemy_transform.translation.truncate();
             // Nur was auf dem Bildschirm ist, wird getroffen.
-            let on_screen = pos.x.abs() < HALF_WIDTH + 20.0 && pos.y.abs() < HALF_HEIGHT + 20.0;
+            let on_screen = pos.x.abs() < field.half_width + 20.0 && pos.y.abs() < HALF_HEIGHT + 20.0;
             if !on_screen || wave.hit.contains(&enemy_entity) || pos.distance(center) > wave.radius {
                 continue;
             }
@@ -140,7 +141,7 @@ fn expand(
         // Bosse sind groß und stehen am Rand: Sie zählen, sobald sie auf dem Bildschirm sind.
         for (boss_entity, mut boss, boss_transform) in &mut bosses {
             let pos = boss_transform.translation.truncate();
-            if !boss.alive() || pos.x > HALF_WIDTH + 100.0 || wave.hit.contains(&boss_entity) || pos.distance(center) > wave.radius {
+            if !boss.alive() || pos.x > field.half_width + 100.0 || wave.hit.contains(&boss_entity) || pos.distance(center) > wave.radius {
                 continue;
             }
             wave.hit.push(boss_entity);

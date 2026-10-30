@@ -8,7 +8,7 @@ use crate::neon::{CYAN, Shape, WHITE, scaled};
 use crate::particles::Particles;
 use crate::rng::Rng;
 use crate::shots;
-use crate::{GamePhase, Gameplay, HALF_HEIGHT, HALF_WIDTH, Shake};
+use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield, Shake};
 
 pub const MAX_HEALTH: f32 = 100.0;
 pub const MAX_LEVEL: u8 = 5;
@@ -19,7 +19,12 @@ pub const HIT_RADIUS: f32 = 16.0;
 const SPEED: f32 = 430.0;
 const LASER_COOLDOWN: f32 = 0.13;
 const MISSILE_COOLDOWN: f32 = 0.9;
-const START: Vec2 = Vec2::new(-HALF_WIDTH + 160.0, 0.0);
+/// Startpunkt, so weit vom linken Rand entfernt.
+const START_FROM_EDGE: f32 = 160.0;
+
+fn start(field: &Playfield) -> Vec3 {
+    Vec3::new(-field.half_width + START_FROM_EDGE, 0.0, 1.0)
+}
 /// Nach einem Verlust des Schiffs bleibt das neue eine Weile unverwundbar.
 const RESPAWN_INVULNERABLE: f32 = 2.5;
 
@@ -29,6 +34,7 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Loadout>()
             .add_systems(Startup, spawn_player)
+            .add_systems(PreUpdate, place_at_start.after(crate::update_playfield))
             .add_systems(
                 Update,
                 (
@@ -95,15 +101,29 @@ fn ship_shape() -> Shape {
         .closed(&[Vec2::new(16.0, 0.0), Vec2::new(4.0, 4.0), Vec2::new(-2.0, 0.0), Vec2::new(4.0, -4.0)])
 }
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, field: Res<Playfield>) {
     commands.spawn((
         Player { health: MAX_HEALTH, invulnerable: 0.0, laser_cooldown: 0.0, missile_cooldown: 0.0 },
         ship_shape(),
-        Transform::from_translation(START.extend(1.0)),
+        Transform::from_translation(start(&field)),
     ));
 }
 
-fn steer(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, mut player: Single<&mut Transform, With<Player>>) {
+/// Beim Start ist die Fensterbreite noch unbekannt; sobald sie feststeht, rückt das Schiff an
+/// den linken Rand.
+fn place_at_start(field: Res<Playfield>, mut player: Single<&mut Transform, With<Player>>, mut frames: Local<u32>) {
+    if *frames < 3 {
+        *frames += 1;
+        player.translation = start(&field);
+    }
+}
+
+fn steer(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    field: Res<Playfield>,
+    mut player: Single<&mut Transform, With<Player>>,
+) {
     let pressed = |a: KeyCode, b: KeyCode| keys.pressed(a) || keys.pressed(b);
     let mut dir = Vec2::ZERO;
     if pressed(KeyCode::KeyW, KeyCode::ArrowUp) {
@@ -119,7 +139,7 @@ fn steer(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, mut player: Single<&m
         dir.x += 1.0;
     }
     let pos = player.translation.truncate() + dir.normalize_or_zero() * SPEED * time.delta_secs();
-    let max = Vec2::new(HALF_WIDTH - 30.0, HALF_HEIGHT - 60.0);
+    let max = Vec2::new(field.half_width - 30.0, HALF_HEIGHT - 60.0);
     player.translation = pos.clamp(-max, max).extend(player.translation.z);
     // Leicht in die Kurve legen.
     player.rotation = Quat::from_rotation_z(dir.y * 0.08);
@@ -242,6 +262,7 @@ fn check_death(
     mut particles: ResMut<Particles>,
     mut rng: ResMut<Rng>,
     mut shake: ResMut<Shake>,
+    field: Res<Playfield>,
     player: Single<(&mut Player, &mut Transform, &Shape)>,
 ) {
     let (mut player, mut transform, shape) = player.into_inner();
@@ -253,5 +274,5 @@ fn check_death(
     *loadout = Loadout::default();
     player.health = MAX_HEALTH;
     player.invulnerable = RESPAWN_INVULNERABLE;
-    transform.translation = START.extend(1.0);
+    transform.translation = start(&field);
 }

@@ -4,14 +4,14 @@
 use bevy::prelude::*;
 
 use crate::rng::Rng;
-use crate::{HALF_HEIGHT, HALF_WIDTH};
+use crate::HALF_HEIGHT;
 
 /// Geschwindigkeit der drei Ebenen in Welt-Einheiten pro Sekunde.
 const LAYER_SPEED: [f32; 3] = [18.0, 55.0, 140.0];
-const STARS_PER_LAYER: usize = 70;
+const STARS_PER_LAYER: usize = 110;
 const GRID_SPACING: f32 = 80.0;
-/// Etwas breiter als das Spielfeld, damit bei breiten Fenstern nichts plötzlich auftaucht.
-const SPAN: f32 = HALF_WIDTH * 1.6;
+/// Halbe Breite des Sternenfelds: reicht auch für Monitore bis 32:9.
+const SPAN: f32 = 1350.0;
 
 pub struct BackgroundPlugin;
 

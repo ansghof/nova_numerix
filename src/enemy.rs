@@ -10,9 +10,10 @@ use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Player};
 use crate::rng::Rng;
 use crate::level::LevelProgress;
 use crate::shots::{Targetable, spawn_enemy_shot};
-use crate::{GamePhase, Gameplay, HALF_HEIGHT, HALF_WIDTH, Shake};
+use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield, Shake};
 
-const SPAWN_X: f32 = HALF_WIDTH + 60.0;
+/// So weit rechts außerhalb des sichtbaren Felds tauchen Gegner auf.
+const SPAWN_MARGIN: f32 = 60.0;
 const RAM_DAMAGE: f32 = 25.0;
 const ENEMY_SHOT_SPEED: f32 = 260.0;
 /// Die erste Frachtdrohne kommt früh, damit man die Aufgaben gleich kennenlernt.
@@ -214,8 +215,10 @@ fn spawn_waves(
     mut spawner: ResMut<Spawner>,
     mut waves: ResMut<Waves>,
     progress: Res<LevelProgress>,
+    field: Res<Playfield>,
 ) {
     let dt = time.delta_secs();
+    let spawn_x = field.half_width + SPAWN_MARGIN;
     spawner.wave -= dt;
     spawner.freighter -= dt;
 
@@ -223,7 +226,7 @@ fn spawn_waves(
         spawner.freighter = rng.range(9.0, 12.0);
         let y = rng.range(-180.0, 180.0);
         let freighter = Enemy::new(EnemyKind::Freighter, &mut rng);
-        spawn_enemy(&mut commands, freighter, Vec2::new(SPAWN_X, y));
+        spawn_enemy(&mut commands, freighter, Vec2::new(spawn_x, y));
     }
 
     // Beim Boss kommen nur noch Frachtdrohnen.
@@ -240,14 +243,14 @@ fn spawn_waves(
             for i in 0..6 {
                 let mut enemy = Enemy::new(EnemyKind::Wobbler, &mut rng);
                 enemy.wave_phase = i as f32 * 0.5;
-                members.push((enemy, Vec2::new(SPAWN_X + i as f32 * 55.0, y)));
+                members.push((enemy, Vec2::new(spawn_x + i as f32 * 55.0, y)));
             }
         }
         // Pfeile in V-Formation
         1 => {
             let y = rng.range(-170.0, 170.0);
             for (dx, dy) in [(0.0, 0.0), (40.0, 45.0), (40.0, -45.0), (80.0, 90.0), (80.0, -90.0)] {
-                members.push((Enemy::new(EnemyKind::Dart, &mut rng), Vec2::new(SPAWN_X + dx, y + dy)));
+                members.push((Enemy::new(EnemyKind::Dart, &mut rng), Vec2::new(spawn_x + dx, y + dy)));
             }
         }
         // Zange: oben und unten gleichzeitig
@@ -256,7 +259,7 @@ fn spawn_waves(
                 for i in 0..4 {
                     let mut enemy = Enemy::new(EnemyKind::Wobbler, &mut rng);
                     enemy.wave_phase = i as f32 * 0.5;
-                    members.push((enemy, Vec2::new(SPAWN_X + i as f32 * 55.0, y)));
+                    members.push((enemy, Vec2::new(spawn_x + i as f32 * 55.0, y)));
                 }
             }
         }
@@ -267,13 +270,13 @@ fn spawn_waves(
             for i in 0..5 {
                 let mut enemy = Enemy::new(EnemyKind::Dart, &mut rng);
                 enemy.heading = heading;
-                let pos = Vec2::new(150.0 + i as f32 * 85.0, side * (HALF_HEIGHT + 40.0 + i as f32 * 45.0));
+                let pos = Vec2::new(field.half_width - 490.0 + i as f32 * 85.0, side * (HALF_HEIGHT + 40.0 + i as f32 * 45.0));
                 members.push((enemy, pos));
             }
         }
         // Kreisel: ein Ring, der sich beim Heranfliegen dreht
         _ => {
-            let center = Vec2::new(SPAWN_X + 90.0, rng.range(-170.0, 170.0));
+            let center = Vec2::new(spawn_x + 90.0, rng.range(-170.0, 170.0));
             for i in 0..6 {
                 let mut enemy = Enemy::new(EnemyKind::Spinner, &mut rng);
                 enemy.center = center;
@@ -292,6 +295,7 @@ fn spawn_waves(
 fn fly(
     mut commands: Commands,
     time: Res<Time>,
+    field: Res<Playfield>,
     mut waves: ResMut<Waves>,
     mut enemies: Query<(Entity, &mut Enemy, &mut Transform)>,
 ) {
@@ -318,7 +322,7 @@ fn fly(
         }
         // Entkommen: links hinaus oder nach einem Sturzflug oben bzw. unten.
         let p = transform.translation;
-        if p.x < -HALF_WIDTH - 120.0 || (enemy.age > 1.0 && p.y.abs() > HALF_HEIGHT + 160.0) {
+        if p.x < -field.half_width - 120.0 || (enemy.age > 1.0 && p.y.abs() > HALF_HEIGHT + 160.0) {
             if let Some(wave) = enemy.wave {
                 waves.gone(wave, true);
             }
@@ -331,6 +335,7 @@ fn shoot(
     mut commands: Commands,
     time: Res<Time>,
     mut rng: ResMut<Rng>,
+    field: Res<Playfield>,
     mut enemies: Query<(&mut Enemy, &Transform)>,
     player: Single<&Transform, With<Player>>,
 ) {
@@ -341,7 +346,7 @@ fn shoot(
         }
         enemy.fire_timer -= time.delta_secs();
         let pos = transform.translation.truncate();
-        if enemy.fire_timer > 0.0 || pos.x > HALF_WIDTH - 20.0 || pos.x < target.x {
+        if enemy.fire_timer > 0.0 || pos.x > field.half_width - 20.0 || pos.x < target.x {
             continue;
         }
         enemy.fire_timer = rng.range(2.0, 4.5);
@@ -392,6 +397,7 @@ fn destroy(
     mut cleared: MessageWriter<WaveCleared>,
     mut waves: ResMut<Waves>,
     mut shake: ResMut<Shake>,
+    field: Res<Playfield>,
     enemies: Query<(Entity, &Enemy, &Shape, &Transform)>,
 ) {
     for (entity, enemy, shape, transform) in &enemies {
@@ -408,21 +414,28 @@ fn destroy(
         }
         if let Some(size) = enemy.wave.and_then(|wave| waves.gone(wave, false)) {
             cleared.write(WaveCleared { size });
-            wave_cleared_effect(&mut commands, &mut particles, &mut rng, &mut shake, transform.translation.truncate());
+            wave_cleared_effect(&mut commands, &mut particles, &mut rng, &mut shake, &field, transform.translation.truncate());
         }
         commands.entity(entity).despawn();
     }
 }
 
 /// Goldene Doppel-Druckwelle, Funkenregen und ein Schriftzug, wo der letzte Gegner der Welle fiel.
-fn wave_cleared_effect(commands: &mut Commands, particles: &mut Particles, rng: &mut Rng, shake: &mut Shake, at: Vec2) {
+fn wave_cleared_effect(
+    commands: &mut Commands,
+    particles: &mut Particles,
+    rng: &mut Rng,
+    shake: &mut Shake,
+    field: &Playfield,
+    at: Vec2,
+) {
     particles.ring(at, GOLD, 520.0, 0.55);
     particles.ring(at, scaled(WHITE, 0.8), 340.0, 0.45);
     particles.sparks(rng, at, GOLD, 60, 520.0);
     particles.sparks(rng, at, WHITE, 20, 300.0);
     shake.0 = shake.0.max(5.0);
     // Über der Druckwelle und nicht zu nah am Rand, damit der Schriftzug lesbar bleibt.
-    let pos = (at + Vec2::Y * 80.0).clamp(Vec2::new(-HALF_WIDTH + 160.0, -HALF_HEIGHT + 80.0), Vec2::new(HALF_WIDTH - 160.0, HALF_HEIGHT - 120.0));
+    let pos = (at + Vec2::Y * 80.0).clamp(Vec2::new(-field.half_width + 160.0, -HALF_HEIGHT + 80.0), Vec2::new(field.half_width - 160.0, HALF_HEIGHT - 120.0));
     commands.spawn((
         RisingBanner(0.0),
         Text2d::new("Welle ausgelöscht!"),

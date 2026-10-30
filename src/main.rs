@@ -21,9 +21,30 @@ use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
 
 /// Halbe Breite und Höhe des Spielfelds in Welt-Einheiten. Die Kamera zeigt immer mindestens
-/// dieses Feld, egal wie groß das Fenster ist.
+/// dieses Feld; auf breiteren Bildschirmen wird es breiter, siehe [`Playfield`].
 pub const HALF_WIDTH: f32 = 640.0;
 pub const HALF_HEIGHT: f32 = 360.0;
+
+/// Das tatsächlich sichtbare Spielfeld. Auf Breitbild-Monitoren (etwa 21:9) ist es breiter
+/// als 16:9; Schiff, Gegner und Boss nutzen dann die ganze Breite.
+#[derive(Resource)]
+pub struct Playfield {
+    pub half_width: f32,
+}
+
+impl Default for Playfield {
+    fn default() -> Self {
+        Self { half_width: HALF_WIDTH }
+    }
+}
+
+pub fn update_playfield(window: Single<&Window, With<PrimaryWindow>>, mut field: ResMut<Playfield>) {
+    let aspect = window.width() / window.height().max(1.0);
+    let half_width = (HALF_HEIGHT * aspect).max(HALF_WIDTH);
+    if field.half_width != half_width {
+        field.half_width = half_width;
+    }
+}
 
 /// Wo im Spiel man sich befindet. Die Spielwelt läuft nur beim Fliegen.
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -52,11 +73,21 @@ fn main() {
     // Automatische Testläufe sollen niemandem den Fokus wegnehmen.
     let test_run = cfg!(debug_assertions) && std::env::var("NOVA_TEST").is_ok();
 
+    // Testläufe können eine andere Fenstergröße verlangen, etwa NOVA_GROESSE=1680x720 für 21:9.
+    let resolution = std::env::var("NOVA_GROESSE")
+        .ok()
+        .filter(|_| test_run)
+        .and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+        })
+        .unwrap_or((1280, 720));
+
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Nova Numerix".into(),
-                resolution: (1280, 720).into(),
+                resolution: resolution.into(),
                 focused: !test_run,
                 // Gespielt wird im Vollbild; F11 wechselt ins Fenster und zurück.
                 mode: if test_run { WindowMode::Windowed } else { WindowMode::BorderlessFullscreen(MonitorSelection::Primary) },
@@ -77,6 +108,8 @@ fn main() {
         .configure_sets(Update, Gameplay.run_if(in_state(AppState::Playing)))
         .init_resource::<rng::Rng>()
         .init_resource::<Shake>()
+        .init_resource::<Playfield>()
+        .add_systems(PreUpdate, update_playfield)
         .add_systems(Startup, spawn_camera)
         .add_systems(Update, (shake_camera, toggle_fullscreen))
         .add_plugins((

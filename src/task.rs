@@ -337,7 +337,8 @@ fn spawn_popup(mut commands: Commands, active: Res<ActiveTask>) {
             Node {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
-                top: Val::Percent(10.0),
+                // Unter dem Boss-Banner, damit beide lesbar bleiben.
+                top: Val::Px(150.0),
                 justify_content: JustifyContent::Center,
                 ..default()
             },

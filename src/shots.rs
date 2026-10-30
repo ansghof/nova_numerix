@@ -7,7 +7,7 @@ use crate::neon::{CYAN, ORANGE, Shape, WHITE, polygon};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Player};
 use crate::rng::Rng;
-use crate::{GamePhase, Gameplay, HALF_HEIGHT, HALF_WIDTH};
+use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield};
 
 const LASER_SPEED: f32 = 1100.0;
 const MISSILE_SPEED: f32 = 520.0;
@@ -106,6 +106,7 @@ fn steer_missiles(
 fn fly(
     mut commands: Commands,
     time: Res<Time>,
+    field: Res<Playfield>,
     mut shots: Query<(Entity, &Shot, &mut Transform, Has<Hostile>)>,
 ) {
     let dt = time.delta_secs();
@@ -116,7 +117,7 @@ fn fly(
             transform.rotate_z(6.0 * dt);
         }
         let p = transform.translation;
-        if p.x.abs() > HALF_WIDTH + 80.0 || p.y.abs() > HALF_HEIGHT + 80.0 {
+        if p.x.abs() > field.half_width + 80.0 || p.y.abs() > HALF_HEIGHT + 80.0 {
             commands.entity(entity).despawn();
         }
     }

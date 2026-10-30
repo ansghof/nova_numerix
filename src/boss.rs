@@ -19,12 +19,12 @@ use crate::shots::{Friendly, Shot, Targetable, spawn_enemy_shot};
 use crate::superweapon::{CHARGES_PER_LEVEL, SuperWeapon};
 use crate::enemy::Enemy;
 use crate::task::{BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, Task, Topic};
-use crate::{Gameplay, HALF_WIDTH, Shake};
+use crate::{Gameplay, Playfield, Shake};
 
 const NAME: &str = "Der Wächter";
 pub const BOSS_HEALTH: f32 = 150.0;
-/// Hier bleibt der Boss stehen, nachdem er hereingeflogen ist.
-const HOLD_X: f32 = HALF_WIDTH - 190.0;
+/// So weit vom rechten Rand bleibt der Boss stehen, nachdem er hereingeflogen ist.
+const HOLD_FROM_EDGE: f32 = 190.0;
 const ENTER_SPEED: f32 = 140.0;
 const BOB_HEIGHT: f32 = 80.0;
 const PLATE_X: f32 = -135.0;
@@ -186,6 +186,7 @@ fn spawn_boss(
     progress: Res<LevelProgress>,
     mut state: ResMut<BossState>,
     mut shake: ResMut<Shake>,
+    field: Res<Playfield>,
 ) {
     if state.spawned || !progress.boss_ahead() {
         return;
@@ -206,7 +207,7 @@ fn spawn_boss(
                 dying: None,
             },
             body_shape(),
-            Transform::from_xyz(HALF_WIDTH + 280.0, 0.0, 0.0),
+            Transform::from_xyz(field.half_width + 280.0, 0.0, 0.0),
             // Die Zahlen auf den Platten brauchen eine durchgehende Sichtbarkeits-Kette.
             Visibility::default(),
         ))
@@ -295,13 +296,15 @@ fn spawn_banner(commands: &mut Commands) {
 
 fn move_boss(
     time: Res<Time>,
+    field: Res<Playfield>,
     boss: Single<(&mut Boss, &mut Transform), Without<Player>>,
     player: Single<&mut Transform, With<Player>>,
 ) {
     let (mut boss, mut transform) = boss.into_inner();
     let dt = time.delta_secs();
-    if transform.translation.x > HOLD_X {
-        transform.translation.x = (transform.translation.x - ENTER_SPEED * dt).max(HOLD_X);
+    let hold_x = field.half_width - HOLD_FROM_EDGE;
+    if transform.translation.x > hold_x {
+        transform.translation.x = (transform.translation.x - ENTER_SPEED * dt).max(hold_x);
     } else {
         boss.entered = true;
         boss.age += dt;
