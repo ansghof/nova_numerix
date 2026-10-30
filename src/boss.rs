@@ -10,18 +10,17 @@
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::level::{LevelProgress, LevelStats};
+use crate::level::{BossDef, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats};
+use crate::shipyard::Credits;
 use crate::neon::{GOLD, GREEN, MAGENTA, ORANGE, RED, Shape, WHITE, polygon, scaled};
 use crate::particles::Particles;
-use crate::player::{Loadout, MAX_HEALTH, Player};
+use crate::player::{Loadout, Player};
 use crate::rng::Rng;
 use crate::shots::{Friendly, Shot, Targetable, spawn_enemy_shot};
-use crate::superweapon::{CHARGES_PER_LEVEL, SuperWeapon};
 use crate::enemy::Enemy;
-use crate::task::{BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, Task, Topic};
-use crate::{Gameplay, Playfield, Shake};
+use crate::task::{BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, TASK_CREDITS, Task, Topic};
+use crate::{AppState, Gameplay, Playfield, Shake};
 
-const NAME: &str = "Der Wächter";
 pub const BOSS_HEALTH: f32 = 150.0;
 /// So weit vom rechten Rand bleibt der Boss stehen, nachdem er hereingeflogen ist.
 const HOLD_FROM_EDGE: f32 = 190.0;
@@ -43,6 +42,7 @@ const WRONG_PAUSE: f32 = 1.8;
 const FIRST_PAUSE: f32 = 2.0;
 const DEATH_TIME: f32 = 2.4;
 const BOSS_POINTS: u32 = 5000;
+const BOSS_CREDITS: u32 = 150;
 const SHOT_SPEED: f32 = 240.0;
 const BURST_SPEED: f32 = 360.0;
 /// Die Superwaffe wirkt auf den Boss so viel stärker als auf normale Gegner.
@@ -58,10 +58,14 @@ pub struct BossPlugin;
 
 impl Plugin for BossPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BossState>().add_systems(
-            Update,
-            (spawn_boss, move_boss, run_round, hit_boss, attack, animate, update_banner, dying, restart).chain().in_set(Gameplay),
-        );
+        app.init_resource::<BossState>()
+            .add_systems(
+                Update,
+                (spawn_boss, move_boss, run_round, hit_boss, attack, animate, update_banner, dying, victory)
+                    .chain()
+                    .in_set(Gameplay),
+            )
+            .add_systems(Update, clear_on_start);
     }
 }
 
@@ -147,8 +151,20 @@ fn font(size: f32) -> TextFont {
     }
 }
 
-fn body_shape() -> Shape {
-    Shape::new(MAGENTA)
+fn body_shape(def: &BossDef) -> Shape {
+    let core_ring = polygon(6, 40.0, 0.0).iter().map(|p| *p + CORE_POS).collect::<Vec<_>>();
+    if def.cube {
+        // Ein Würfel, schräg von vorn gesehen, mit Gitterlinien auf der Vorderseite.
+        return Shape::new(def.color)
+            .closed(&[Vec2::new(-110.0, -190.0), Vec2::new(110.0, -190.0), Vec2::new(110.0, 190.0), Vec2::new(-110.0, 190.0)])
+            .open(&[Vec2::new(-110.0, 190.0), Vec2::new(-60.0, 222.0), Vec2::new(160.0, 222.0), Vec2::new(160.0, -158.0), Vec2::new(110.0, -190.0)])
+            .open(&[Vec2::new(110.0, 190.0), Vec2::new(160.0, 222.0)])
+            .open(&[Vec2::new(37.0, -190.0), Vec2::new(37.0, 190.0)])
+            .open(&[Vec2::new(-30.0, -63.0), Vec2::new(110.0, -63.0)])
+            .open(&[Vec2::new(-30.0, 63.0), Vec2::new(110.0, 63.0)])
+            .closed(&core_ring);
+    }
+    Shape::new(def.color)
         .closed(&[
             Vec2::new(-105.0, -110.0),
             Vec2::new(-60.0, -205.0),
@@ -164,7 +180,7 @@ fn body_shape() -> Shape {
         ])
         .open(&[Vec2::new(-30.0, -180.0), Vec2::new(70.0, -120.0), Vec2::new(70.0, 120.0), Vec2::new(-30.0, 180.0)])
         .open(&[Vec2::new(70.0, 0.0), Vec2::new(150.0, 0.0)])
-        .closed(&polygon(6, 40.0, 0.0).iter().map(|p| *p + CORE_POS).collect::<Vec<_>>())
+        .closed(&core_ring)
 }
 
 fn plate_shape() -> Shape {
@@ -187,26 +203,28 @@ fn spawn_boss(
     mut state: ResMut<BossState>,
     mut shake: ResMut<Shake>,
     field: Res<Playfield>,
+    current: Res<CurrentLevel>,
 ) {
     if state.spawned || !progress.boss_ahead() {
         return;
     }
     state.spawned = true;
     shake.0 = 6.0;
+    let def = &current.def().boss;
     let boss = commands
         .spawn((
             Boss {
                 health: BOSS_HEALTH,
                 round: Round::Pause { remaining: FIRST_PAUSE },
                 task: None,
-                feedback: (format!("Achtung: {NAME}!"), BAD),
+                feedback: (format!("Achtung: {}!", def.name), BAD),
                 age: 0.0,
                 entered: false,
                 volley_timer: 3.0,
                 volleys: 0,
                 dying: None,
             },
-            body_shape(),
+            body_shape(def),
             Transform::from_xyz(field.half_width + 280.0, 0.0, 0.0),
             // Die Zahlen auf den Platten brauchen eine durchgehende Sichtbarkeits-Kette.
             Visibility::default(),
@@ -234,10 +252,10 @@ fn spawn_boss(
         commands.entity(label).insert(ChildOf(plate));
     }
     commands.spawn((BossCore { flash: 0.0 }, core_shape(), Transform::from_translation(CORE_POS.extend(0.2)), ChildOf(boss)));
-    spawn_banner(&mut commands);
+    spawn_banner(&mut commands, def.name);
 }
 
-fn spawn_banner(commands: &mut Commands) {
+fn spawn_banner(commands: &mut Commands, name: &str) {
     let root = commands
         .spawn((
             Banner,
@@ -264,7 +282,7 @@ fn spawn_banner(commands: &mut Commands) {
             ChildOf(root),
         ))
         .id();
-    commands.spawn((Text::new(NAME), TextColor(BAD), font(14.0), ChildOf(panel)));
+    commands.spawn((Text::new(name), TextColor(BAD), font(14.0), ChildOf(panel)));
     let health = commands
         .spawn((
             Node { width: Val::Px(320.0), height: Val::Px(6.0), border_radius: BorderRadius::all(Val::Px(3.0)), ..default() },
@@ -411,6 +429,7 @@ fn hit_boss(
     mut score: ResMut<Score>,
     mut particles: ResMut<Particles>,
     mut rng: ResMut<Rng>,
+    mut credits: ResMut<Credits>,
     shots: Query<(Entity, &Shot, &Transform), With<Friendly>>,
     boss: Single<(&mut Boss, &Transform)>,
     mut plates: Query<(&mut Plate, &GlobalTransform)>,
@@ -448,6 +467,7 @@ fn hit_boss(
                 score.0 += points;
                 let praise = if share >= FAST_SHARE { "Blitzschnell!" } else { "Treffer!" };
                 boss.feedback = (format!("{praise} +{points} · Kern offen – Feuer!"), GOOD);
+                credits.flight += TASK_CREDITS;
                 plate.opened = true;
                 boss.round = Round::Open { remaining: OPEN_TIME, total: OPEN_TIME };
                 commands.entity(core_entity).insert(Targetable);
@@ -584,8 +604,6 @@ fn dying(
     mut score: ResMut<Score>,
     mut state: ResMut<BossState>,
     mut pending: ResMut<PendingTasks>,
-    stats: Res<LevelStats>,
-    loadout: Res<Loadout>,
     boss: Single<(Entity, &mut Boss, &Transform, &Shape)>,
     banner: Query<Entity, With<Banner>>,
     shots: Query<Entity, With<Shot>>,
@@ -632,10 +650,17 @@ fn dying(
         commands.entity(enemy).despawn();
     }
     pending.clear();
-    spawn_victory(&mut commands, score.0, &stats, &loadout);
 }
 
-fn spawn_victory(commands: &mut Commands, score: u32, stats: &LevelStats, loadout: &Loadout) {
+fn spawn_victory(
+    commands: &mut Commands,
+    name: &str,
+    score: u32,
+    earned: u32,
+    stats: &LevelStats,
+    loadout: &Loadout,
+    unlocked: Option<&LevelDef>,
+) {
     let root = commands
         .spawn((
             VictoryScreen,
@@ -673,8 +698,8 @@ fn spawn_victory(commands: &mut Commands, score: u32, stats: &LevelStats, loadou
     }
     let lines = [
         ("Level geschafft!".to_string(), GOOD, 44.0),
-        (format!("{NAME} ist zerstört."), TEXT, 20.0),
-        (format!("{score} Punkte"), OKAY, 28.0),
+        (format!("{name} ist zerstört."), TEXT, 20.0),
+        (format!("{score} Punkte · +{earned} Credits"), OKAY, 28.0),
         (
             format!(
                 "Aufgaben: {} richtig ({} blitzschnell) · {} Zeit um · {} falsch",
@@ -684,49 +709,72 @@ fn spawn_victory(commands: &mut Commands, score: u32, stats: &LevelStats, loadou
             18.0,
         ),
         (format!("Bleibt an Bord: {weapons}"), TEXT, 18.0),
-        ("Enter: weiterfliegen".to_string(), Color::srgb(0.55, 0.62, 0.75), 16.0),
     ];
     for (text, color, size) in lines {
         commands.spawn((Text::new(text), TextColor(color), font(size), ChildOf(panel)));
     }
+    if let Some(level) = unlocked {
+        let message = format!("Neues Level freigeschaltet: {} · {}", level.world, level.topic);
+        commands.spawn((Text::new(message), TextColor(GOOD), font(18.0), ChildOf(panel)));
+    }
+    commands.spawn((Text::new("Enter: zur Werft"), TextColor(Color::srgb(0.55, 0.62, 0.75)), font(16.0), ChildOf(panel)));
 }
 
-/// Nach dem Sieg: Enter startet den nächsten Flug. Die Waffen bleiben, alles andere beginnt neu.
-fn restart(
+/// Nach dem Sieg: Credits des Flugs aufs Konto, nächstes Level freischalten, Auswertung zeigen.
+/// Enter führt in die Werft.
+fn victory(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     real: Res<Time<Real>>,
     mut time: ResMut<Time<Virtual>>,
-    mut state: ResMut<BossState>,
-    mut progress: ResMut<LevelProgress>,
-    mut stats: ResMut<LevelStats>,
-    mut weapon: ResMut<SuperWeapon>,
-    mut player: Single<&mut Player>,
-    screens: Query<Entity, With<VictoryScreen>>,
-    enemies: Query<Entity, With<Enemy>>,
+    state: Res<BossState>,
+    score: Res<Score>,
+    stats: Res<LevelStats>,
+    loadout: Res<Loadout>,
+    mut credits: ResMut<Credits>,
+    mut campaign: ResMut<Campaign>,
+    current: Res<CurrentLevel>,
+    mut next: ResMut<NextState<AppState>>,
     mut waited: Local<f32>,
+    mut shown: Local<bool>,
 ) {
     if !state.defeated {
         *waited = 0.0;
+        *shown = false;
         return;
+    }
+    if !*shown {
+        *shown = true;
+        let earned = credits.flight + BOSS_CREDITS;
+        credits.bank += earned;
+        credits.flight = 0;
+        let unlocked_before = campaign.unlocked;
+        campaign.unlocked = campaign.unlocked.max((current.0 + 2).min(LEVELS.len()));
+        let unlocked = (campaign.unlocked > unlocked_before).then(|| &LEVELS[campaign.unlocked - 1]);
+        spawn_victory(&mut commands, current.def().boss.name, score.0, earned, &stats, &loadout, unlocked);
     }
     // Nach dem großen Knall die Welt anhalten, bis es weitergeht.
     *waited += real.delta_secs();
     if *waited > 1.5 && !time.is_paused() {
         time.pause();
     }
-    if !keys.just_pressed(KeyCode::Enter) && !keys.just_pressed(KeyCode::NumpadEnter) {
+    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
+        next.set(AppState::Shipyard);
+    }
+}
+
+/// Ein neues Level beginnt: Boss, Banner und Siegerbild verschwinden.
+fn clear_on_start(
+    mut commands: Commands,
+    mut started: MessageReader<LevelStarted>,
+    mut state: ResMut<BossState>,
+    leftovers: Query<Entity, Or<(With<Boss>, With<Banner>, With<VictoryScreen>)>>,
+) {
+    if started.read().last().is_none() {
         return;
     }
-    info!("Nächster Flug");
-    for entity in screens.iter().chain(&enemies) {
+    *state = BossState::default();
+    for entity in &leftovers {
         commands.entity(entity).despawn();
     }
-    *state = BossState::default();
-    progress.elapsed = 0.0;
-    *stats = LevelStats::default();
-    weapon.charges = CHARGES_PER_LEVEL;
-    player.health = MAX_HEALTH;
-    time.unpause();
-    time.set_relative_speed(1.0);
 }

@@ -10,6 +10,7 @@ mod neon;
 mod particles;
 mod player;
 mod rng;
+mod shipyard;
 mod shots;
 mod superweapon;
 mod task;
@@ -53,6 +54,8 @@ pub enum AppState {
     Splash,
     Menu,
     Playing,
+    /// Zwischen zwei Flügen: Training, Shop und Abflug.
+    Shipyard,
 }
 
 /// Alle Systeme der Spielwelt; sie ruhen in Splash und Menü.
@@ -125,6 +128,7 @@ fn main() {
             boss::BossPlugin,
             hud::HudPlugin,
             menu::MenuPlugin,
+            shipyard::ShipyardPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);

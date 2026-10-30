@@ -11,7 +11,8 @@ use bevy::prelude::*;
 use crate::{GamePhase, Gameplay};
 use crate::enemy::{FreightDestroyed, WaveCleared};
 use crate::hud::Score;
-use crate::level::LevelStats;
+use crate::level::{LevelStarted, LevelStats};
+use crate::shipyard::Credits;
 use crate::player::{Loadout, MAX_HEALTH, MAX_LEVEL, Player};
 use crate::rng::Rng;
 use crate::superweapon::FireSuper;
@@ -33,6 +34,9 @@ pub const FAST_SHARE: f32 = 0.5;
 const MAX_DIGITS: usize = 4;
 /// Die Superwaffe hat etwas mehr Zeit, weil ein Fehler eine zweite Aufgabe nach sich zieht.
 const SUPER_EXTRA_TIME: f32 = 3.0;
+/// Credits für jede richtig gelöste Aufgabe im Flug.
+pub const TASK_CREDITS: u32 = 10;
+const CHIP_TIME_FACTOR: f32 = 1.5;
 
 const TEXT: Color = Color::srgb(0.92, 0.96, 1.0);
 const DIM: Color = Color::srgb(0.55, 0.62, 0.75);
@@ -47,6 +51,12 @@ impl Plugin for TaskPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Topic(Box::new(SmallTimesTable::new())))
             .init_resource::<PendingTasks>()
+            .init_resource::<SlowChips>()
+            .add_systems(Update, |mut started: MessageReader<LevelStarted>, mut pending: ResMut<PendingTasks>| {
+                if started.read().last().is_some() {
+                    pending.clear();
+                }
+            })
             .add_systems(OnEnter(GamePhase::Task), spawn_popup)
             .add_systems(OnExit(GamePhase::Return), close_popup)
             .add_systems(
@@ -142,19 +152,7 @@ impl SmallTimesTable {
 
 impl TaskGenerator for SmallTimesTable {
     fn next(&mut self, rng: &mut Rng) -> Task {
-        let total: f32 = self.weights.iter().enumerate().filter(|(i, _)| !self.repeats_last(*i)).map(|(_, w)| w).sum();
-        let mut pick = rng.f32() * total;
-        let mut fact = 0;
-        for (i, w) in self.weights.iter().enumerate() {
-            if self.repeats_last(i) {
-                continue;
-            }
-            fact = i;
-            if pick < *w {
-                break;
-            }
-            pick -= w;
-        }
+        let fact = pick_weighted(&self.weights, |i| self.repeats_last(i), rng);
         self.last = Some(fact);
         let (a, b) = Self::factors(fact);
         let product = a * b;
@@ -169,16 +167,78 @@ impl TaskGenerator for SmallTimesTable {
     }
 
     fn record(&mut self, task: &Task, outcome: &Outcome) {
-        let w = &mut self.weights[task.fact];
-        *w = match outcome {
-            Outcome::Correct { remaining_share } if *remaining_share >= FAST_SHARE => *w * 0.6,
-            Outcome::Correct { .. } => *w * 0.85,
-            Outcome::TimedOut => *w * 1.6,
-            Outcome::Wrong => *w * 2.5,
-        }
-        .clamp(0.2, 8.0);
+        reweigh(&mut self.weights[task.fact], outcome);
     }
 }
+
+/// Quadratzahlen von 2² bis 15². Lückenaufgaben fragen nach der Zahl, die quadriert wurde
+/// („?² = 144“). 10² ist zu leicht und kommt anfangs selten.
+pub struct Squares {
+    weights: Vec<f32>,
+    last: Option<usize>,
+}
+
+impl Squares {
+    const LOW: u32 = 2;
+    const HIGH: u32 = 15;
+    const GAP_SHARE: f32 = 0.35;
+
+    pub fn new() -> Self {
+        let weights = (Self::LOW..=Self::HIGH).map(|n| if n == 10 { 0.25 } else { 1.0 }).collect();
+        Self { weights, last: None }
+    }
+}
+
+impl TaskGenerator for Squares {
+    fn next(&mut self, rng: &mut Rng) -> Task {
+        let fact = pick_weighted(&self.weights, |i| Some(i) == self.last, rng);
+        self.last = Some(fact);
+        let n = Self::LOW + fact as u32;
+        let square = n * n;
+        if rng.chance(Self::GAP_SHARE) {
+            Task { prompt: format!("?² = {square}"), answer: n, fact, time_limit: 8.0 }
+        } else {
+            Task { prompt: format!("{n}² = ?"), answer: square, fact, time_limit: 7.0 }
+        }
+    }
+
+    fn record(&mut self, task: &Task, outcome: &Outcome) {
+        reweigh(&mut self.weights[task.fact], outcome);
+    }
+}
+
+/// Zieht ein Fakt nach Gewicht; `skip` schließt etwa die gerade gestellte Aufgabe aus.
+fn pick_weighted(weights: &[f32], skip: impl Fn(usize) -> bool, rng: &mut Rng) -> usize {
+    let total: f32 = weights.iter().enumerate().filter(|(i, _)| !skip(*i)).map(|(_, w)| w).sum();
+    let mut pick = rng.f32() * total;
+    let mut fact = 0;
+    for (i, w) in weights.iter().enumerate() {
+        if skip(i) {
+            continue;
+        }
+        fact = i;
+        if pick < *w {
+            break;
+        }
+        pick -= w;
+    }
+    fact
+}
+
+/// Fehler machen ein Fakt häufiger, schnelle richtige Antworten seltener.
+fn reweigh(weight: &mut f32, outcome: &Outcome) {
+    *weight = match outcome {
+        Outcome::Correct { remaining_share } if *remaining_share >= FAST_SHARE => *weight * 0.6,
+        Outcome::Correct { .. } => *weight * 0.85,
+        Outcome::TimedOut => *weight * 1.6,
+        Outcome::Wrong => *weight * 2.5,
+    }
+    .clamp(0.2, 8.0);
+}
+
+/// Zeitlupen-Chips aus dem Shop: Jeder gibt einer Aufgabe im Flug 50 % mehr Zeit.
+#[derive(Resource, Default)]
+pub struct SlowChips(pub u32);
 
 #[derive(Resource)]
 pub struct Topic(pub Box<dyn TaskGenerator>);
@@ -270,6 +330,8 @@ pub struct ActiveTask {
     time_limit: f32,
     /// Verstrichene echte Zeit in der Rückkehr-Phase.
     returning: f32,
+    /// Ein Zeitlupen-Chip verlängert diese Aufgabe.
+    chip: bool,
 }
 
 #[derive(Component)]
@@ -309,6 +371,7 @@ fn start_task(
     mut pending: ResMut<PendingTasks>,
     mut topic: ResMut<Topic>,
     mut rng: ResMut<Rng>,
+    mut chips: ResMut<SlowChips>,
     loadout: Res<Loadout>,
     player: Single<&Player>,
     mut next: ResMut<NextState<GamePhase>>,
@@ -325,8 +388,13 @@ fn start_task(
         return;
     };
     let task = topic.0.next(&mut rng);
-    let time_limit = task.time_limit + extra_time;
-    commands.insert_resource(ActiveTask { task, purpose, input: String::new(), elapsed: 0.0, time_limit, returning: 0.0 });
+    let mut time_limit = task.time_limit + extra_time;
+    let chip = chips.0 > 0;
+    if chip {
+        chips.0 -= 1;
+        time_limit *= CHIP_TIME_FACTOR;
+    }
+    commands.insert_resource(ActiveTask { task, purpose, input: String::new(), elapsed: 0.0, time_limit, returning: 0.0, chip });
     next.set(GamePhase::Task);
 }
 
@@ -392,7 +460,8 @@ fn spawn_popup(mut commands: Commands, active: Res<ActiveTask>) {
         BackgroundColor(GOOD),
         ChildOf(bar),
     ));
-    commands.spawn((HintText, Text::new("Nummernblock · Enter"), TextColor(DIM), font(16.0), ChildOf(panel)));
+    let hint = if active.chip { "Nummernblock · Enter · Zeitlupen-Chip: +50 % Zeit" } else { "Nummernblock · Enter" };
+    commands.spawn((HintText, Text::new(hint), TextColor(DIM), font(16.0), ChildOf(panel)));
 }
 
 impl ActiveTask {
@@ -402,7 +471,7 @@ impl ActiveTask {
 }
 
 /// Ziffern über Nummernblock oder Ziffernreihe, Rücktaste löscht, Enter gibt ab.
-fn read_digit(keys: &ButtonInput<KeyCode>) -> Option<char> {
+pub fn read_digit(keys: &ButtonInput<KeyCode>) -> Option<char> {
     const KEYS: [(KeyCode, KeyCode); 10] = [
         (KeyCode::Digit0, KeyCode::Numpad0),
         (KeyCode::Digit1, KeyCode::Numpad1),
@@ -429,6 +498,7 @@ fn type_answer(
     mut loadout: ResMut<Loadout>,
     mut rng: ResMut<Rng>,
     mut stats: ResMut<LevelStats>,
+    mut credits: ResMut<Credits>,
     mut fire: MessageWriter<FireSuper>,
     mut player: Single<&mut Player>,
     mut prompt: Single<(&mut Text, &mut TextColor), (With<PromptText>, Without<HintText>)>,
@@ -469,6 +539,9 @@ fn type_answer(
     let solution = active.task.solution();
     topic.0.record(&active.task, &outcome);
     stats.count(&outcome);
+    if matches!(outcome, Outcome::Correct { .. }) {
+        credits.flight += TASK_CREDITS;
+    }
     let (color, feedback) = match (&mut active.purpose, outcome) {
         (Purpose::Freight(reward), Outcome::Correct { remaining_share }) => {
             let points = (BASE_POINTS + SPEED_POINTS * remaining_share).round() as u32;
@@ -611,5 +684,29 @@ mod tests {
         // Ohne Bremse wären 17 von 81 Fakten mit 10 dabei, also etwa 21 %.
         let ten_share = tens as f32 / n as f32;
         assert!(ten_share < 0.1, "Anteil mit 10: {ten_share}");
+    }
+}
+
+#[cfg(test)]
+mod square_tests {
+    use super::*;
+
+    #[test]
+    fn quadratzahlen_stimmen() {
+        let mut rng = Rng::default();
+        let mut squares = Squares::new();
+        let mut gaps = 0;
+        for _ in 0..2000 {
+            let task = squares.next(&mut rng);
+            let solution = task.solution();
+            let (left, right) = solution.split_once("² = ").unwrap();
+            let n: u32 = left.parse().unwrap();
+            assert_eq!(n * n, right.parse::<u32>().unwrap(), "{}", task.prompt);
+            assert!((2..=15).contains(&n));
+            if task.prompt.starts_with('?') {
+                gaps += 1;
+            }
+        }
+        assert!((500..900).contains(&gaps), "Lücken: {gaps}");
     }
 }

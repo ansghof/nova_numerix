@@ -166,6 +166,19 @@ Zeitlupen-Chips (+50 % Zeit für X Aufgaben), Rümpfe, Lackierungen.
 | Zeit abgelaufen, aber richtig | 1 % |
 | falsch | 0 %, Quibbo ist für diesen Artikel beleidigt, bis man den Shop verlässt |
 
+### Umgesetzt (Stand Werft)
+- Credits im Flug: 2–6 je Abschuss, 10 je richtiger Aufgabe, 150 für den Boss. Sie gehen
+  erst nach dem Sieg aufs Konto; beim Tod sind die Flug-Credits weg.
+- Training: 12 Credits + bis 8 Tempo-Bonus je richtiger Aufgabe, Staffel 100/50/25/10 %,
+  falsch = 3 s Denkpause, Zeit um = Lösung wird gezeigt.
+- Shop: Reparatur (+25 Schild für 250), Laser-Stufe (400 × aktuelle Stufe), Raketenwerfer
+  600 bzw. Raketen-Stufe 400 × neue Stufe, Superwaffen-Ladung 350 (max. 2), drei
+  Zeitlupen-Chips 200. Verhandeln (V) einmal je Artikel und Besuch: richtig 3–10 %,
+  Zeit um 1 %, falsch 0 % und Quibbo redet über den Artikel nicht mehr. Ein Rabatt gilt
+  für einen Kauf.
+- Der Schild bleibt zwischen den Leveln, wie er ist; Reparatur kostet.
+- Noch offen: Panzerung, neue Rümpfe, Speichern.
+
 ## Level
 
 | # | Thema | Welt (Akzentfarbe) | Boss |

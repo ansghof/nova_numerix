@@ -4,6 +4,8 @@
 use bevy::prelude::*;
 
 use crate::boss::BossState;
+use crate::level::LevelStarted;
+use crate::shipyard::Credits;
 use crate::neon::{CYAN, Shape, WHITE, scaled};
 use crate::particles::Particles;
 use crate::rng::Rng;
@@ -35,6 +37,7 @@ impl Plugin for PlayerPlugin {
         app.init_resource::<Loadout>()
             .add_systems(Startup, spawn_player)
             .add_systems(PreUpdate, place_at_start.after(crate::update_playfield))
+            .add_systems(Update, start_of_level)
             .add_systems(
                 Update,
                 (
@@ -116,6 +119,19 @@ fn place_at_start(field: Res<Playfield>, mut player: Single<&mut Transform, With
         *frames += 1;
         player.translation = start(&field);
     }
+}
+
+fn start_of_level(
+    mut started: MessageReader<LevelStarted>,
+    field: Res<Playfield>,
+    player: Single<(&mut Player, &mut Transform)>,
+) {
+    if started.read().last().is_none() {
+        return;
+    }
+    let (mut player, mut transform) = player.into_inner();
+    transform.translation = start(&field);
+    player.invulnerable = 1.0;
 }
 
 fn steer(
@@ -262,6 +278,7 @@ fn check_death(
     mut particles: ResMut<Particles>,
     mut rng: ResMut<Rng>,
     mut shake: ResMut<Shake>,
+    mut credits: ResMut<Credits>,
     field: Res<Playfield>,
     player: Single<(&mut Player, &mut Transform, &Shape)>,
 ) {
@@ -269,9 +286,11 @@ fn check_death(
     if player.health > 0.0 {
         return;
     }
+    info!("Schiff zerstört");
     particles.explode(&mut rng, shape, &transform, 2.0);
     shake.0 = 12.0;
     *loadout = Loadout::default();
+    credits.flight = 0;
     player.health = MAX_HEALTH;
     player.invulnerable = RESPAWN_INVULNERABLE;
     transform.translation = start(&field);

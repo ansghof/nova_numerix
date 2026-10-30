@@ -6,6 +6,8 @@
 //! - eine Taste: `q`, `enter`, `rück`, `leer`, `esc`, `hoch`, `runter`, `0`–`9`
 //! - `antwort`: die richtige Lösung der offenen Aufgabe eintippen und abgeben
 //! - `boss`: direkt ans Levelende springen
+//! - `sieg`: den Boss sofort besiegen
+//! - `geld N`: N Credits aufs Konto
 //! - `feuer an` / `feuer aus`: Leertaste dauerhaft halten
 //! - `zielen an` / `zielen aus`: das Schiff auf die richtige Bossplatte oder den offenen Kern ausrichten
 //! - `bild NAME`: Screenshot nach `target/test-NAME.png`
@@ -22,6 +24,7 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
 use crate::GamePhase;
+use crate::shipyard::{Credits, Shipyard};
 use crate::boss::{Boss, BossCore, Plate};
 use crate::enemy::WaveCleared;
 use crate::level::{LEVEL_LENGTH, LevelProgress};
@@ -70,6 +73,11 @@ fn key(name: &str) -> Option<KeyCode> {
         "esc" => KeyCode::Escape,
         "hoch" => KeyCode::ArrowUp,
         "runter" => KeyCode::ArrowDown,
+        "w" => KeyCode::KeyW,
+        "a" => KeyCode::KeyA,
+        "s" => KeyCode::KeyS,
+        "d" => KeyCode::KeyD,
+        "v" => KeyCode::KeyV,
         _ => digit(name.parse().ok()?)?,
     })
 }
@@ -97,6 +105,9 @@ fn play_script(
     mut script: ResMut<TestScript>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     active: Option<Res<ActiveTask>>,
+    shipyard: Option<Res<Shipyard>>,
+    mut boss: Option<Single<&mut Boss>>,
+    mut credits: ResMut<Credits>,
     mut progress: ResMut<LevelProgress>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -119,6 +130,12 @@ fn play_script(
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
         } else if let Some(name) = action.strip_prefix("wellenbild ") {
             commands.insert_resource(WaveShot { name: Some(name.to_string()), countdown: None });
+        } else if action == "sieg" {
+            if let Some(boss) = &mut boss {
+                boss.health = 0.0;
+            }
+        } else if let Some(amount) = action.strip_prefix("geld ").and_then(|a| a.parse::<u32>().ok()) {
+            credits.bank += amount;
         } else if action == "boss" {
             progress.elapsed = LEVEL_LENGTH;
         } else if let Some(on) = action.strip_prefix("feuer ") {
@@ -131,11 +148,12 @@ fn play_script(
         } else if action == "ende" {
             exit.write(AppExit::Success);
         } else if action == "antwort" {
-            let Some(active) = &active else {
+            let open = active.as_ref().map(|a| a.task.answer).or_else(|| shipyard.as_ref().and_then(|s| s.open_answer()));
+            let Some(answer) = open else {
                 warn!("Test: keine offene Aufgabe");
                 continue;
             };
-            let answer = active.task.answer.to_string();
+            let answer = answer.to_string();
             let digits = answer.chars().filter_map(|c| digit(c.to_digit(10)?));
             script.keys.extend(digits.chain([KeyCode::Enter]));
         } else if let Some(code) = key(&action) {

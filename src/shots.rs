@@ -19,7 +19,8 @@ pub struct ShotsPlugin;
 
 impl Plugin for ShotsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (steer_missiles, fly, hit_enemies, hit_player).chain().in_set(Gameplay));
+        app.add_systems(Update, (steer_missiles, fly, hit_enemies, hit_player).chain().in_set(Gameplay))
+            .add_systems(Update, clear_on_start);
     }
 }
 
@@ -75,6 +76,14 @@ pub fn spawn_enemy_shot(commands: &mut Commands, pos: Vec2, vel: Vec2) {
         Shape::new(ORANGE).closed(&polygon(4, 7.0, 0.0)).closed(&polygon(4, 3.0, 0.0)),
         Transform::from_translation(pos.extend(0.5)),
     ));
+}
+
+fn clear_on_start(mut commands: Commands, mut started: MessageReader<crate::level::LevelStarted>, shots: Query<Entity, With<Shot>>) {
+    if started.read().last().is_some() {
+        for shot in &shots {
+            commands.entity(shot).despawn();
+        }
+    }
 }
 
 fn steer_missiles(

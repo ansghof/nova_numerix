@@ -28,7 +28,8 @@ pub struct SuperWeaponPlugin;
 impl Plugin for SuperWeaponPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<FireSuper>()
-            .insert_resource(SuperWeapon { charges: CHARGES_PER_LEVEL })
+            .insert_resource(SuperWeapon { charges: CHARGES_PER_LEVEL, bought: 0 })
+            .add_systems(Update, refill)
             .add_systems(Startup, spawn_flash)
             .add_systems(
                 Update,
@@ -40,6 +41,16 @@ impl Plugin for SuperWeaponPlugin {
 #[derive(Resource)]
 pub struct SuperWeapon {
     pub charges: u8,
+    /// Im Shop gekaufte Zusatzladungen für den nächsten Flug.
+    pub bought: u8,
+}
+
+/// Jedes Level beginnt mit vollen Ladungen, dazu was im Shop gekauft wurde.
+fn refill(mut started: MessageReader<crate::level::LevelStarted>, mut weapon: ResMut<SuperWeapon>) {
+    if started.read().last().is_some() {
+        weapon.charges = CHARGES_PER_LEVEL + weapon.bought;
+        weapon.bought = 0;
+    }
 }
 
 /// Zündet die Superwaffe. Stufe 3 bei sehr schneller, 2 bei richtiger Antwort, 1 bei

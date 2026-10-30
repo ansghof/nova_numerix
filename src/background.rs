@@ -5,6 +5,7 @@ use bevy::prelude::*;
 
 use crate::rng::Rng;
 use crate::HALF_HEIGHT;
+use crate::level::CurrentLevel;
 
 /// Geschwindigkeit der drei Ebenen in Welt-Einheiten pro Sekunde.
 const LAYER_SPEED: [f32; 3] = [18.0, 55.0, 140.0];
@@ -54,7 +55,7 @@ fn scroll(time: Res<Time>, mut field: ResMut<Starfield>) {
     field.grid_offset = (field.grid_offset + LAYER_SPEED[2] * dt) % GRID_SPACING;
 }
 
-fn draw(mut gizmos: Gizmos, field: Res<Starfield>) {
+fn draw(mut gizmos: Gizmos, field: Res<Starfield>, level: Res<CurrentLevel>) {
     for star in &field.stars {
         let brightness = [0.25, 0.55, 1.1][star.layer];
         let length = [1.5, 3.0, 7.0][star.layer];
@@ -63,7 +64,7 @@ fn draw(mut gizmos: Gizmos, field: Res<Starfield>) {
     }
 
     // Leuchtendes Gitter als Boden und Decke, perspektivisch nach außen auseinanderlaufend.
-    let grid = LinearRgba::rgb(0.35, 0.08, 0.6);
+    let grid = level.def().grid;
     for (edge, inner) in [(-HALF_HEIGHT, -HALF_HEIGHT + 40.0), (HALF_HEIGHT, HALF_HEIGHT - 40.0)] {
         gizmos.line_2d(Vec2::new(-SPAN, inner), Vec2::new(SPAN, inner), grid);
         let mut x = -SPAN - field.grid_offset;

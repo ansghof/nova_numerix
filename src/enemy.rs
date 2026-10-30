@@ -8,7 +8,8 @@ use crate::neon::{GOLD, MAGENTA, RED, Shape, VIOLET, WHITE, polygon, scaled};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Player};
 use crate::rng::Rng;
-use crate::level::LevelProgress;
+use crate::level::{LevelProgress, LevelStarted};
+use crate::shipyard::Credits;
 use crate::shots::{Targetable, spawn_enemy_shot};
 use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield, Shake};
 
@@ -33,6 +34,7 @@ impl Plugin for EnemyPlugin {
             .add_message::<WaveCleared>()
             .insert_resource(Spawner { wave: 1.5, freighter: FIRST_FREIGHTER })
             .init_resource::<Waves>()
+            .add_systems(Update, clear_on_start)
             .add_systems(
                 Update,
                 (spawn_waves, fly, shoot, ram_player, flash, destroy, rise_banners).chain().in_set(Gameplay),
@@ -68,6 +70,15 @@ impl EnemyKind {
             Self::Dart => 150,
             Self::Spinner => 120,
             Self::Freighter => 300,
+        }
+    }
+
+    /// Credits für den Abschuss.
+    fn credits(self) -> u32 {
+        match self {
+            Self::Wobbler | Self::Spinner => 2,
+            Self::Dart => 3,
+            Self::Freighter => 6,
         }
     }
 
@@ -206,6 +217,24 @@ struct Spawner {
 fn spawn_enemy(commands: &mut Commands, enemy: Enemy, pos: Vec2) {
     let kind = enemy.kind;
     commands.spawn((enemy, Hitbox(kind.radius()), Targetable, kind.shape(), Transform::from_translation(pos.extend(0.0))));
+}
+
+/// Neues Level: Was noch fliegt, verschwindet, und Wellen wie Frachtdrohnen beginnen von vorn.
+fn clear_on_start(
+    mut commands: Commands,
+    mut started: MessageReader<LevelStarted>,
+    mut waves: ResMut<Waves>,
+    mut spawner: ResMut<Spawner>,
+    enemies: Query<Entity, With<Enemy>>,
+) {
+    if started.read().last().is_none() {
+        return;
+    }
+    for enemy in &enemies {
+        commands.entity(enemy).despawn();
+    }
+    *waves = Waves::default();
+    *spawner = Spawner { wave: 1.5, freighter: FIRST_FREIGHTER };
 }
 
 fn spawn_waves(
@@ -397,6 +426,7 @@ fn destroy(
     mut cleared: MessageWriter<WaveCleared>,
     mut waves: ResMut<Waves>,
     mut shake: ResMut<Shake>,
+    mut credits: ResMut<Credits>,
     field: Res<Playfield>,
     enemies: Query<(Entity, &Enemy, &Shape, &Transform)>,
 ) {
@@ -409,6 +439,7 @@ fn destroy(
         let size = if enemy.kind == EnemyKind::Freighter { 1.6 } else { 1.0 };
         particles.explode(&mut rng, &shape, transform, size);
         score.0 += enemy.kind.points();
+        credits.flight += enemy.kind.credits();
         if enemy.kind == EnemyKind::Freighter {
             freight.write(FreightDestroyed);
         }
