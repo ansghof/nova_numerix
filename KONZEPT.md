@@ -224,7 +224,20 @@ Zeitlupen-Chips (+50 % Zeit für X Aufgaben), Rümpfe, Lackierungen.
 | 5 | Großes 1×1 | Gasriese (Sturmorange) | Sturmfestung – Mehrphasen-Boss |
 | 6 | Binär 4 Bit | Datenkern (Matrixgrün) | Der Prozessor – Bit-Lampen als Schwachstellen |
 
-**Binäreingabe:** vier Kippschalter (8, 4, 2, 1), umschalten mit den Tasten 1–4.
+**Binäreingabe (umgesetzt):** Die Antwort wird mit 0 und 1 auf dem Nummernblock getippt;
+führende Nullen darf man weglassen, angezeigt wird sie vierstellig. Unter jeder Binäraufgabe
+stehen die Stellenwerte 8 · 4 · 2 · 1.
+
+### Umgesetzt (Level)
+| # | Welt | Thema | Boss | Eigene Gegner |
+|---|---|---|---|---|
+| 1 | Neonnebel | Kleines 1×1 | Der Wächter | Wackler, Pfeile, Kreisel |
+| 2 | Gitterstation | Quadratzahlen | Der Kubus | Geschütze, Teiler, Sucher |
+| 3 | Gasriese | Großes 1×1 (11–20 × 2–9) | Die Sturmfestung: ab halber Kraft zusätzlich drehende Schussringe | Minen (gehen hoch, wenn man zu nahe kommt; dann kein Abschuss und keine Wellenprämie), Kreuzer mit Fünferfächer |
+| 4 | Datenkern | Binärzahlen (4 Bit, beide Richtungen) | Der Prozessor: Platten zeigen Binärzahlen, falsche unterscheiden sich in einem Bit | Bits (nur als 1 verwundbar, kippen alle 1,4 s um), Datenströme |
+
+Hintergründe: am Gasriesen ein gestreifter Planet, im Datenkern herabrieselnde Datenströme.
+Addition und Subtraktion bis 20 sind für 10- bis 15-Jährige zu leicht und entfallen vorerst.
 
 Pro Level 3 Sterne (geschafft / über 80 % richtig / Boss mit Superwaffe Stufe 3 besiegt),
 Schwierigkeitsgrade Kadett / Pilot / Ass.

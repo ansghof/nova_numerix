@@ -157,6 +157,12 @@ fn hit_enemies(
                 continue;
             }
             if pos.distance(transform.translation.truncate()) < hitbox.0 + shot.radius {
+                // Ein Bit, das gerade 0 zeigt, lässt den Schuss abprallen.
+                if enemy.shielded {
+                    particles.sparks(&mut rng, pos, scaled(CYAN, 0.5), 3, 140.0);
+                    commands.entity(entity).try_despawn();
+                    break;
+                }
                 enemy.health -= shot.damage;
                 enemy.flash = 1.0;
                 particles.sparks(&mut rng, pos, WHITE, 5, 220.0);

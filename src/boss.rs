@@ -10,7 +10,7 @@
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::level::{BossDef, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats};
+use crate::level::{BossDef, BossStyle, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats};
 use crate::shipyard::{Credits, new_goods};
 use crate::neon::{GOLD, GREEN, MAGENTA, ORANGE, RED, Shape, WHITE, polygon, scaled};
 use crate::particles::Particles;
@@ -18,7 +18,7 @@ use crate::player::{Loadout, Player};
 use crate::rng::Rng;
 use crate::shots::{Friendly, Shot, Targetable, spawn_enemy_shot};
 use crate::enemy::Enemy;
-use crate::task::{BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, TASK_CREDITS, Task, Topic};
+use crate::task::{BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, TASK_CREDITS, Task, Topic, binary_digits, from_binary_digits};
 use crate::{AppState, Gameplay, Playfield, Shake};
 
 pub const BOSS_HEALTH: f32 = 150.0;
@@ -151,9 +151,39 @@ fn font(size: f32) -> TextFont {
     }
 }
 
+/// Punkte auf einem Kreisbogen, für Wirbel und runde Rümpfe.
+fn arc(center: Vec2, radius: f32, from: f32, to: f32, steps: usize) -> Vec<Vec2> {
+    (0..=steps).map(|i| center + Vec2::from_angle(from + (to - from) * i as f32 / steps as f32) * radius).collect()
+}
+
 fn body_shape(def: &BossDef) -> Shape {
     let core_ring = polygon(6, 40.0, 0.0).iter().map(|p| *p + CORE_POS).collect::<Vec<_>>();
-    if def.cube {
+    if def.style == BossStyle::Storm {
+        // Eine runde Festung, um die Sturmbänder wirbeln.
+        let center = Vec2::new(60.0, 0.0);
+        let mut shape = Shape::new(def.color).closed(&polygon(14, 172.0, 0.0).iter().map(|p| *p + center).collect::<Vec<_>>());
+        for i in 0..4 {
+            let start = i as f32 * std::f32::consts::FRAC_PI_2;
+            shape = shape.open(&arc(center, 120.0, start, start + 1.2, 8)).open(&arc(center, 205.0, start + 0.6, start + 1.5, 8));
+        }
+        return shape.closed(&core_ring);
+    }
+    if def.style == BossStyle::Processor {
+        // Ein Chip: Gehäuse, Kern in der Mitte und Anschlussbeinchen oben, unten und hinten.
+        let mut shape = Shape::new(def.color)
+            .closed(&[Vec2::new(-110.0, -190.0), Vec2::new(130.0, -190.0), Vec2::new(130.0, 190.0), Vec2::new(-110.0, 190.0)])
+            .closed(&[Vec2::new(-20.0, -90.0), Vec2::new(90.0, -90.0), Vec2::new(90.0, 90.0), Vec2::new(-20.0, 90.0)]);
+        for i in 0..7 {
+            let x = -80.0 + i as f32 * 33.0;
+            shape = shape.open(&[Vec2::new(x, 190.0), Vec2::new(x, 218.0)]).open(&[Vec2::new(x, -190.0), Vec2::new(x, -218.0)]);
+        }
+        for i in 0..9 {
+            let y = -160.0 + i as f32 * 40.0;
+            shape = shape.open(&[Vec2::new(130.0, y), Vec2::new(158.0, y)]);
+        }
+        return shape.closed(&core_ring);
+    }
+    if def.style == BossStyle::Cube {
         // Ein Würfel, schräg von vorn gesehen, mit Gitterlinien auf der Vorderseite.
         return Shape::new(def.color)
             .closed(&[Vec2::new(-110.0, -190.0), Vec2::new(110.0, -190.0), Vec2::new(110.0, 190.0), Vec2::new(-110.0, 190.0)])
@@ -336,6 +366,23 @@ fn move_boss(
     }
 }
 
+/// Drei falsche, aber plausible Binärzahlen: dieselbe Zahl mit einem umgekippten Bit.
+fn binary_distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
+    let n = from_binary_digits(answer).unwrap_or(1);
+    let mut out = Vec::new();
+    for _ in 0..100 {
+        if out.len() == 3 {
+            break;
+        }
+        let candidate = n ^ (1 << rng.below(4));
+        let digits = binary_digits(candidate);
+        if candidate > 0 && candidate != n && !out.contains(&digits) {
+            out.push(digits);
+        }
+    }
+    out
+}
+
 /// Drei falsche, aber plausible Ergebnisse: Nachbarn, Zehnersprünge, vertauschte Ziffern.
 fn distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
     const OFFSETS: [u32; 9] = [1, 2, 3, 4, 5, 6, 8, 10, 12];
@@ -359,7 +406,7 @@ fn distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
 
 fn new_round(boss: &mut Boss, plates: &mut Query<&mut Plate>, topic: &mut Topic, rng: &mut Rng) {
     let task = topic.0.next(rng);
-    let mut values = distractors(task.answer, rng);
+    let mut values = if task.binary { binary_distractors(task.answer, rng) } else { distractors(task.answer, rng) };
     values.push(task.answer);
     for i in (1..values.len()).rev() {
         values.swap(i, rng.below(i + 1));
@@ -509,6 +556,7 @@ fn attack(
     boss: Single<(&mut Boss, &Transform)>,
     core: Single<&GlobalTransform, With<BossCore>>,
     player: Single<&Transform, (With<Player>, Without<Boss>)>,
+    current: Res<CurrentLevel>,
 ) {
     let (mut boss, _) = boss.into_inner();
     if !boss.entered || !boss.alive() {
@@ -523,6 +571,15 @@ fn attack(
     boss.volley_timer = if enraged { 1.7 } else { 2.6 };
     boss.volleys += 1;
     let from = core.translation().truncate();
+    // Zweite Phase der Sturmfestung: jede zweite Salve ein drehender Ring aus Schüssen.
+    if enraged && current.def().boss.style == BossStyle::Storm && boss.volleys % 2 == 0 {
+        let turn = boss.volleys as f32 * 0.35;
+        for i in 0..10 {
+            let angle = turn + i as f32 / 10.0 * std::f32::consts::TAU;
+            spawn_enemy_shot(&mut commands, from, Vec2::from_angle(angle) * SHOT_SPEED * 0.9);
+        }
+        return;
+    }
     if boss.volleys % 3 == 0 {
         // Gezielte Dreierreihe
         let dir = (player.translation.truncate() - from).normalize_or(Vec2::NEG_X);
@@ -544,7 +601,7 @@ fn animate(
     real: Res<Time<Real>>,
     boss: Single<&Boss>,
     mut plates: Query<(&mut Plate, &mut Transform, &mut Shape)>,
-    mut labels: Query<(&mut Text2d, &mut Visibility)>,
+    mut labels: Query<(&mut Text2d, &mut TextFont, &mut Visibility)>,
     core: Single<(&mut BossCore, &mut Shape), Without<Plate>>,
 ) {
     let dt = time.delta_secs();
@@ -559,8 +616,13 @@ fn animate(
         transform.scale = Vec3::new(1.0, 1.0 - plate.open * 0.7, 1.0);
         let base = if pause && plate.correct { scaled(GREEN, pulse) } else { GOLD };
         shape.color = scaled(base, 1.0 - plate.open * 0.7).mix(&RED, plate.red);
-        if let Ok((mut text, mut visibility)) = labels.get_mut(plate.label) {
-            text.0 = plate.value.to_string();
+        if let Ok((mut text, mut font, mut visibility)) = labels.get_mut(plate.label) {
+            text.0 = boss.task.as_ref().map(|t| t.show(plate.value)).unwrap_or_default();
+            // Vier Binärziffern brauchen eine kleinere Schrift, um auf die Platte zu passen.
+            let size = FontSize::Px(if text.0.len() > 3 { 20.0 } else { 30.0 });
+            if font.font_size != size {
+                font.font_size = size;
+            }
             let show = plate.value > 0 && plate.open < 0.5 && !boss.core_open();
             *visibility = if show { Visibility::Inherited } else { Visibility::Hidden };
         }
@@ -582,8 +644,9 @@ fn update_banner(
         Round::Asking { elapsed, limit } => {
             let share = (1.0 - elapsed / limit).clamp(0.0, 1.0);
             let prompt = boss.task.as_ref().map(|t| t.prompt.as_str()).unwrap_or("");
+            let hint = boss.task.as_ref().and_then(|t| t.hint).map(|h| format!("  ({h})")).unwrap_or_default();
             let bar_color = if share > FAST_SHARE { GOOD } else if share > 0.2 { OKAY } else { BAD };
-            (format!("Triff die richtige Zahl: {prompt}"), TEXT, share, bar_color)
+            (format!("Triff die richtige Zahl: {prompt}{hint}"), TEXT, share, bar_color)
         }
         Round::Open { remaining, total } => (boss.feedback.0.clone(), boss.feedback.1, remaining / total, GOOD),
         Round::Pause { .. } => (boss.feedback.0.clone(), boss.feedback.1, 0.0, GOOD),

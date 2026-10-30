@@ -73,6 +73,7 @@ impl Plugin for TaskPlugin {
     }
 }
 
+#[derive(Default)]
 pub struct Task {
     /// Die Aufgabe mit `?` an der gesuchten Stelle, etwa „7 × 8 = ?“ oder „3 × ? = 15“.
     pub prompt: String,
@@ -81,6 +82,11 @@ pub struct Task {
     pub fact: usize,
     /// Zeitlimit in echten Sekunden.
     pub time_limit: f32,
+    /// Die Antwort ist eine Binärzahl aus Nullen und Einsen, etwa 101 für „0101₂“. Sie wird
+    /// vierstellig angezeigt; führende Nullen darf man weglassen.
+    pub binary: bool,
+    /// Eine Merkhilfe unter der Aufgabe, etwa die Stellenwerte der Binärzahlen.
+    pub hint: Option<&'static str>,
 }
 
 impl Task {
@@ -91,8 +97,23 @@ impl Task {
 
     /// Die vollständige, richtige Gleichung.
     pub fn solution(&self) -> String {
-        self.with(&self.answer.to_string())
+        self.with(&self.show(self.answer))
     }
+
+    /// Eine Zahl so, wie sie als Antwort aussieht: Binärzahlen vierstellig mit führenden Nullen.
+    pub fn show(&self, value: u32) -> String {
+        if self.binary { format!("{value:04}") } else { value.to_string() }
+    }
+}
+
+/// Eine Zahl von 0 bis 15 als Ziffernfolge ihrer Binärdarstellung: 5 → 101.
+pub fn binary_digits(n: u32) -> u32 {
+    format!("{n:b}").parse().unwrap_or(0)
+}
+
+/// Umkehrung von [`binary_digits`]: 101 → 5; `None`, wenn andere Ziffern als 0 und 1 vorkommen.
+pub fn from_binary_digits(digits: u32) -> Option<u32> {
+    u32::from_str_radix(&digits.to_string(), 2).ok()
 }
 
 pub enum Outcome {
@@ -169,9 +190,9 @@ impl TaskGenerator for SmallTimesTable {
             // Lücken brauchen einen Gedanken mehr, also eine Sekunde mehr Zeit.
             let (prompt, answer) =
                 if rng.chance(0.5) { (format!("{a} × ? = {product}"), b) } else { (format!("? × {b} = {product}"), a) };
-            Task { prompt, answer, fact, time_limit: 7.0 }
+            Task { prompt, answer, fact, time_limit: 7.0, ..Default::default() }
         } else {
-            Task { prompt: format!("{a} × {b} = ?"), answer: product, fact, time_limit: 6.0 }
+            Task { prompt: format!("{a} × {b} = ?"), answer: product, fact, time_limit: 6.0, ..Default::default() }
         }
     }
 
@@ -213,9 +234,116 @@ impl TaskGenerator for Squares {
         let n = Self::LOW + fact as u32;
         let square = n * n;
         if rng.chance(Self::GAP_SHARE) {
-            Task { prompt: format!("?² = {square}"), answer: n, fact, time_limit: 8.0 }
+            Task { prompt: format!("?² = {square}"), answer: n, fact, time_limit: 8.0, ..Default::default() }
         } else {
-            Task { prompt: format!("{n}² = ?"), answer: square, fact, time_limit: 7.0 }
+            Task { prompt: format!("{n}² = ?"), answer: square, fact, time_limit: 7.0, ..Default::default() }
+        }
+    }
+
+    fn record(&mut self, task: &Task, outcome: &Outcome) {
+        reweigh(&mut self.weights[task.fact], outcome);
+    }
+
+    fn weights(&self) -> Vec<f32> {
+        self.weights.clone()
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        restore(&mut self.weights, weights);
+    }
+}
+
+/// Großes Einmaleins: 11 bis 20 mal 2 bis 9. Leichte Fakten (mit 11, 20 oder 2) kommen
+/// anfangs seltener. Lückenaufgaben fragen nach einem Faktor („13 × ? = 78“).
+pub struct BigTimesTable {
+    weights: Vec<f32>,
+    last: Option<usize>,
+}
+
+impl BigTimesTable {
+    const BIG: std::ops::RangeInclusive<u32> = 11..=20;
+    const SMALL_LOW: u32 = 2;
+    const SMALL_SPAN: usize = 8;
+    const GAP_SHARE: f32 = 0.3;
+
+    pub fn new() -> Self {
+        let weights = (0..10 * Self::SMALL_SPAN)
+            .map(|fact| {
+                let (a, b) = Self::factors(fact);
+                if a == 11 || a == 20 || b == 2 { 0.4 } else { 1.0 }
+            })
+            .collect();
+        Self { weights, last: None }
+    }
+
+    fn factors(fact: usize) -> (u32, u32) {
+        (*Self::BIG.start() + (fact / Self::SMALL_SPAN) as u32, Self::SMALL_LOW + (fact % Self::SMALL_SPAN) as u32)
+    }
+}
+
+impl TaskGenerator for BigTimesTable {
+    fn next(&mut self, rng: &mut Rng) -> Task {
+        let fact = pick_weighted(&self.weights, |i| Some(i) == self.last, rng);
+        self.last = Some(fact);
+        let (a, b) = Self::factors(fact);
+        let product = a * b;
+        if rng.chance(Self::GAP_SHARE) {
+            let (prompt, answer) =
+                if rng.chance(0.5) { (format!("{a} × ? = {product}"), b) } else { (format!("? × {b} = {product}"), a) };
+            Task { prompt, answer, fact, time_limit: 12.0, ..Default::default() }
+        } else {
+            // Mal steht die große Zahl vorn, mal hinten.
+            let prompt = if rng.chance(0.5) { format!("{a} × {b} = ?") } else { format!("{b} × {a} = ?") };
+            Task { prompt, answer: product, fact, time_limit: 11.0, ..Default::default() }
+        }
+    }
+
+    fn record(&mut self, task: &Task, outcome: &Outcome) {
+        reweigh(&mut self.weights[task.fact], outcome);
+    }
+
+    fn weights(&self) -> Vec<f32> {
+        self.weights.clone()
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        restore(&mut self.weights, weights);
+    }
+}
+
+/// Binärzahlen mit vier Bit (1 bis 15) in beide Richtungen: „1011₂ = ?“ wird als Dezimalzahl
+/// beantwortet, „11 = ?₂“ mit Nullen und Einsen auf dem Nummernblock. 1, 2, 4 und 8 sind leicht
+/// und kommen anfangs seltener.
+pub struct BinaryNumbers {
+    weights: Vec<f32>,
+    last: Option<usize>,
+}
+
+impl BinaryNumbers {
+    const HINT: &'static str = "Stellenwerte: 8 · 4 · 2 · 1";
+
+    pub fn new() -> Self {
+        let weights = (0..30)
+            .map(|fact| {
+                let n = fact as u32 / 2 + 1;
+                if n.is_power_of_two() { 0.4 } else { 1.0 }
+            })
+            .collect();
+        Self { weights, last: None }
+    }
+}
+
+impl TaskGenerator for BinaryNumbers {
+    fn next(&mut self, rng: &mut Rng) -> Task {
+        let fact = pick_weighted(&self.weights, |i| Some(i) == self.last, rng);
+        self.last = Some(fact);
+        let n = fact as u32 / 2 + 1;
+        let hint = Some(Self::HINT);
+        if fact % 2 == 0 {
+            Task { prompt: format!("{n:04b}₂ = ?"), answer: n, fact, time_limit: 10.0, hint, ..Default::default() }
+        } else {
+            let answer = binary_digits(n);
+            Task { prompt: format!("{n} = ?₂"), answer, fact, time_limit: 12.0, binary: true, hint }
         }
     }
 
@@ -577,6 +705,9 @@ fn spawn_popup(mut commands: Commands, active: Res<ActiveTask>) {
         font(56.0),
         ChildOf(panel),
     ));
+    if let Some(topic_hint) = active.task.hint {
+        commands.spawn((Text::new(topic_hint), TextColor(OKAY), font(18.0), ChildOf(panel)));
+    }
     let bar = commands
         .spawn((
             Node { width: Val::Px(380.0), height: Val::Px(12.0), border_radius: BorderRadius::all(Val::Px(6.0)), ..default() },
@@ -839,5 +970,48 @@ mod square_tests {
             }
         }
         assert!((500..900).contains(&gaps), "Lücken: {gaps}");
+    }
+}
+
+#[cfg(test)]
+mod new_topic_tests {
+    use super::*;
+
+    #[test]
+    fn grosses_einmaleins_stimmt() {
+        let mut rng = Rng::default();
+        let mut table = BigTimesTable::new();
+        for _ in 0..2000 {
+            let task = table.next(&mut rng);
+            let solution = task.solution();
+            let (left, right) = solution.split_once(" = ").unwrap();
+            let (a, b) = left.split_once(" × ").unwrap();
+            let (a, b): (u32, u32) = (a.parse().unwrap(), b.parse().unwrap());
+            assert_eq!(a * b, right.parse::<u32>().unwrap(), "{}", task.prompt);
+            assert!((11..=20).contains(&a.max(b)) && (2..=9).contains(&a.min(b)), "{}", task.prompt);
+        }
+    }
+
+    #[test]
+    fn binaerzahlen_stimmen() {
+        let mut rng = Rng::default();
+        let mut topic = BinaryNumbers::new();
+        let mut binary_answers = 0;
+        for _ in 0..2000 {
+            let task = topic.next(&mut rng);
+            let solution = task.solution();
+            let (left, right) = solution.split_once(" = ").unwrap();
+            let (bits, decimal) = if task.binary { (right, left) } else { (left, right) };
+            let bits = bits.trim_end_matches('₂');
+            assert_eq!(bits.len(), 4, "{solution}");
+            assert_eq!(u32::from_str_radix(bits, 2).unwrap(), decimal.parse::<u32>().unwrap(), "{solution}");
+            if task.binary {
+                binary_answers += 1;
+                // Führende Nullen darf man weglassen: „101“ ist dieselbe Eingabe wie „0101“.
+                assert_eq!(bits.parse::<u32>().unwrap(), task.answer);
+            }
+        }
+        assert!((700..1300).contains(&binary_answers), "{binary_answers}");
+        assert_eq!(from_binary_digits(binary_digits(13)), Some(13));
     }
 }

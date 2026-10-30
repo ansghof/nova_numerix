@@ -5,9 +5,9 @@
 use bevy::prelude::*;
 
 use crate::enemy::Formation;
-use crate::neon::{MAGENTA, VIOLET};
+use crate::neon::{GREEN, MAGENTA, ORANGE, VIOLET};
 use crate::save::Mastery;
-use crate::task::{FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
+use crate::task::{BigTimesTable, BinaryNumbers, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
 use crate::{AppState, GamePhase, Gameplay};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
@@ -34,6 +34,8 @@ pub struct LevelDef {
     pub topic: &'static str,
     /// Farbe des Gitters am oberen und unteren Rand.
     pub grid: LinearRgba,
+    /// Was hinter den Sternen zu sehen ist.
+    pub backdrop: Backdrop,
     pub boss: BossDef,
     pub make_topic: fn() -> Box<dyn TaskGenerator>,
     /// Aus diesen Formationen wird jede Welle gelost; was öfter dasteht, kommt öfter.
@@ -43,8 +45,30 @@ pub struct LevelDef {
 pub struct BossDef {
     pub name: &'static str,
     pub color: LinearRgba,
-    /// Würfelförmiger Rumpf statt der runden Festung.
-    pub cube: bool,
+    pub style: BossStyle,
+}
+
+/// Bauform des Bosses; jede hat ihren eigenen Rumpf.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BossStyle {
+    /// Runde Festung
+    Fortress,
+    /// Würfel mit Gitterlinien
+    Cube,
+    /// Wirbelnde Sturmfestung; angeschlagen feuert sie zusätzlich Ringe aus Schüssen.
+    Storm,
+    /// Ein Chip mit Anschlussbeinchen
+    Processor,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Backdrop {
+    /// Nur Sterne
+    Stars,
+    /// Ein riesiger, gestreifter Planet am unteren Rand
+    GasGiant,
+    /// Herabrieselnde Datenströme
+    DataRain,
 }
 
 fn small_times_table() -> Box<dyn TaskGenerator> {
@@ -55,12 +79,21 @@ fn squares() -> Box<dyn TaskGenerator> {
     Box::new(Squares::new())
 }
 
-pub const LEVELS: [LevelDef; 2] = [
+fn big_times_table() -> Box<dyn TaskGenerator> {
+    Box::new(BigTimesTable::new())
+}
+
+fn binary_numbers() -> Box<dyn TaskGenerator> {
+    Box::new(BinaryNumbers::new())
+}
+
+pub const LEVELS: [LevelDef; 4] = [
     LevelDef {
         world: "Neonnebel",
         topic: "Kleines 1×1",
         grid: LinearRgba::rgb(0.35, 0.08, 0.6),
-        boss: BossDef { name: "Der Wächter", color: MAGENTA, cube: false },
+        backdrop: Backdrop::Stars,
+        boss: BossDef { name: "Der Wächter", color: MAGENTA, style: BossStyle::Fortress },
         make_topic: small_times_table,
         formations: &[Formation::Snake, Formation::Arrow, Formation::Pincer, Formation::Dive, Formation::Ring],
     },
@@ -68,7 +101,8 @@ pub const LEVELS: [LevelDef; 2] = [
         world: "Gitterstation",
         topic: "Quadratzahlen",
         grid: LinearRgba::rgb(0.05, 0.45, 0.4),
-        boss: BossDef { name: "Der Kubus", color: VIOLET, cube: true },
+        backdrop: Backdrop::Stars,
+        boss: BossDef { name: "Der Kubus", color: VIOLET, style: BossStyle::Cube },
         make_topic: squares,
         // Die Station hat eigene Verteidiger; von den alten Bekannten kommen nur noch wenige.
         formations: &[
@@ -80,6 +114,41 @@ pub const LEVELS: [LevelDef; 2] = [
             Formation::Seekers,
             Formation::Arrow,
             Formation::Ring,
+        ],
+    },
+    LevelDef {
+        world: "Gasriese",
+        topic: "Großes 1×1",
+        grid: LinearRgba::rgb(0.6, 0.25, 0.04),
+        backdrop: Backdrop::GasGiant,
+        boss: BossDef { name: "Die Sturmfestung", color: ORANGE, style: BossStyle::Storm },
+        make_topic: big_times_table,
+        // In den Stürmen treiben Minen; Kreuzer feuern Fächer.
+        formations: &[
+            Formation::MineField,
+            Formation::Cruisers,
+            Formation::MineField,
+            Formation::Snake,
+            Formation::MineField,
+            Formation::Dive,
+            Formation::Seekers,
+        ],
+    },
+    LevelDef {
+        world: "Datenkern",
+        topic: "Binärzahlen",
+        grid: LinearRgba::rgb(0.05, 0.55, 0.15),
+        backdrop: Backdrop::DataRain,
+        boss: BossDef { name: "Der Prozessor", color: GREEN, style: BossStyle::Processor },
+        make_topic: binary_numbers,
+        // Bits, die nur als 1 verwundbar sind, und schnelle Datenströme.
+        formations: &[
+            Formation::Nibbles,
+            Formation::Stream,
+            Formation::Nibbles,
+            Formation::Stream,
+            Formation::Turrets,
+            Formation::Splitters,
         ],
     },
 ];

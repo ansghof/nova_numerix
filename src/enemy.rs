@@ -1,14 +1,16 @@
 //! Gegnerwellen, die von rechts hereinfliegen, und die goldenen Frachtdrohnen, deren Abschuss
 //! eine Aufgabe auslöst. Welche Formationen kommen, bestimmt das Level: Im Neonnebel fliegen
 //! Wackler, Pfeile und Kreisel, auf der Gitterstation warten Geschütze am Rand, Teiler, die in
-//! Splitter zerfallen, und Sucher, die dem Schiff nachsteuern.
+//! Splitter zerfallen, und Sucher, die dem Schiff nachsteuern. Am Gasriesen treiben Minen, die
+//! hochgehen, wenn man ihnen zu nahe kommt, und Kreuzer feuern Fächer. Im Datenkern sind Bits
+//! nur verwundbar, solange sie eine 1 zeigen, und Datenpakete rasen in Strömen vorbei.
 //!
 //! Jede Frachtdrohne zeigt in ihrem Inneren und auf einem Schild darunter, was sie geladen hat.
 
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::neon::{GOLD, LIME, MAGENTA, ORANGE, PINK, RED, Shape, VIOLET, WHITE, polygon, scaled};
+use crate::neon::{GOLD, GREEN, LIME, MAGENTA, ORANGE, PINK, RED, Shape, VIOLET, WHITE, polygon, scaled};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Loadout, Player};
 use crate::rng::Rng;
@@ -37,6 +39,13 @@ const SEEKER_SPEED: f32 = 210.0;
 /// So schnell steuert ein Sucher höchstens nach oben oder unten.
 const SEEKER_CLIMB: f32 = 170.0;
 const SHARD_SPEED: f32 = 250.0;
+/// Kommt das Schiff einer Mine so nahe, macht sie sich scharf …
+const MINE_TRIGGER: f32 = 120.0;
+/// … und geht so viele Sekunden später hoch.
+const MINE_FUSE: f32 = 0.7;
+/// So lange zeigt ein Bit seine 0 oder 1, bevor es umkippt.
+const BIT_FLIP: f32 = 1.4;
+const PACKET_SPEED: f32 = 300.0;
 /// So lange steigt der Schriftzug nach einer ausgelöschten Welle auf.
 const BANNER_TIME: f32 = 1.3;
 
@@ -73,6 +82,14 @@ pub enum EnemyKind {
     Shard,
     /// Steuert auf die Höhe des Schiffs, bis es vorbei ist.
     Seeker,
+    /// Treibt langsam; kommt das Schiff zu nahe, geht sie mit einem Schussring hoch.
+    Mine,
+    /// Groß und zäh, feuert gezielte Fächer.
+    Cruiser,
+    /// Zeigt abwechselnd 0 und 1; nur als 1 verwundbar.
+    Bit,
+    /// Schnell, in Strömen auf einer gemeinsamen Wellenbahn.
+    Packet,
 }
 
 /// Wie eine Welle aufgebaut ist.
@@ -94,6 +111,14 @@ pub enum Formation {
     Splitters,
     /// Sucherschwarm
     Seekers,
+    /// Verstreute Minen
+    MineField,
+    /// Zwei Kreuzer
+    Cruisers,
+    /// Bits in Viererreihen
+    Nibbles,
+    /// Ein Strom aus Datenpaketen
+    Stream,
 }
 
 impl EnemyKind {
@@ -107,6 +132,10 @@ impl EnemyKind {
             Self::Splitter => 5.0,
             Self::Shard => 1.0,
             Self::Seeker => 2.0,
+            Self::Mine => 2.0,
+            Self::Cruiser => 10.0,
+            Self::Bit => 2.0,
+            Self::Packet => 1.0,
         }
     }
 
@@ -120,17 +149,21 @@ impl EnemyKind {
             Self::Splitter => 150,
             Self::Shard => 50,
             Self::Seeker => 130,
+            Self::Mine => 120,
+            Self::Cruiser => 400,
+            Self::Bit => 120,
+            Self::Packet => 60,
         }
     }
 
     /// Credits für den Abschuss.
     fn credits(self) -> u32 {
         match self {
-            Self::Shard => 1,
-            Self::Wobbler | Self::Spinner | Self::Seeker => 2,
+            Self::Shard | Self::Packet => 1,
+            Self::Wobbler | Self::Spinner | Self::Seeker | Self::Mine | Self::Bit => 2,
             Self::Dart | Self::Splitter => 3,
             Self::Turret => 4,
-            Self::Freighter => 6,
+            Self::Freighter | Self::Cruiser => 6,
         }
     }
 
@@ -144,6 +177,10 @@ impl EnemyKind {
             Self::Splitter => 20.0,
             Self::Shard => 10.0,
             Self::Seeker => 14.0,
+            Self::Mine => 15.0,
+            Self::Cruiser => 28.0,
+            Self::Bit => 17.0,
+            Self::Packet => 10.0,
         }
     }
 
@@ -188,7 +225,46 @@ impl EnemyKind {
             Self::Seeker => Shape::new(PINK)
                 .closed(&[Vec2::new(-17.0, 0.0), Vec2::new(7.0, 10.0), Vec2::new(2.0, 0.0), Vec2::new(7.0, -10.0)])
                 .closed(&polygon(3, 3.0, std::f32::consts::PI)),
+            Self::Mine => {
+                let mut shape = Shape::new(ORANGE).closed(&polygon(8, 12.0, 0.0)).closed(&polygon(4, 3.0, 0.0));
+                for i in 0..4 {
+                    let dir = Vec2::from_angle(std::f32::consts::FRAC_PI_4 + i as f32 * std::f32::consts::FRAC_PI_2);
+                    shape = shape.open(&[dir * 12.0, dir * 20.0]);
+                }
+                shape
+            }
+            Self::Cruiser => Shape::new(RED)
+                .closed(&[
+                    Vec2::new(-36.0, 0.0),
+                    Vec2::new(-20.0, 12.0),
+                    Vec2::new(18.0, 15.0),
+                    Vec2::new(34.0, 6.0),
+                    Vec2::new(34.0, -6.0),
+                    Vec2::new(18.0, -15.0),
+                    Vec2::new(-20.0, -12.0),
+                ])
+                .closed(&[Vec2::new(2.0, 6.0), Vec2::new(16.0, 6.0), Vec2::new(16.0, -6.0), Vec2::new(2.0, -6.0)])
+                .open(&[Vec2::new(-20.0, 12.0), Vec2::new(-30.0, 20.0)])
+                .open(&[Vec2::new(-20.0, -12.0), Vec2::new(-30.0, -20.0)]),
+            Self::Bit => bit_shape(false),
+            Self::Packet => Shape::new(MAGENTA)
+                .closed(&polygon(4, 10.0, 0.0))
+                .open(&[Vec2::new(-4.0, 0.0), Vec2::new(4.0, 0.0)]),
         }
+    }
+}
+
+/// Ein Bit als Ziffer in einem Rahmen: als 1 hell und verwundbar, als 0 dunkel und gepanzert.
+fn bit_shape(zero: bool) -> Shape {
+    let frame = [Vec2::new(-13.0, -20.0), Vec2::new(13.0, -20.0), Vec2::new(13.0, 20.0), Vec2::new(-13.0, 20.0)];
+    if zero {
+        let oval: Vec<Vec2> = (0..12).map(|i| Vec2::from_angle(i as f32 / 12.0 * std::f32::consts::TAU) * Vec2::new(7.0, 12.0)).collect();
+        Shape::new(scaled(GREEN, 0.4)).closed(&frame).closed(&oval)
+    } else {
+        Shape::new(GREEN)
+            .closed(&frame)
+            .open(&[Vec2::new(-5.0, 8.0), Vec2::new(2.0, 13.0), Vec2::new(2.0, -13.0)])
+            .open(&[Vec2::new(-5.0, -13.0), Vec2::new(8.0, -13.0)])
     }
 }
 
@@ -211,6 +287,12 @@ pub struct Enemy {
     wave: Option<u32>,
     /// Was eine Frachtdrohne geladen hat.
     cargo: Option<Reward>,
+    /// Eine scharfe Mine: Sekunden bis zur Explosion.
+    fuse: Option<f32>,
+    /// Die Mine ist von selbst hochgegangen; das zählt nicht als Abschuss.
+    detonated: bool,
+    /// Ein Bit, das gerade eine 0 zeigt: Schüsse prallen ab.
+    pub shielded: bool,
 }
 
 impl Enemy {
@@ -227,6 +309,9 @@ impl Enemy {
             center: Vec2::ZERO,
             wave: None,
             cargo: None,
+            fuse: None,
+            detonated: false,
+            shielded: false,
         }
     }
 }
@@ -458,6 +543,48 @@ fn spawn_waves(
                 members.push((enemy, Vec2::new(spawn_x + i as f32 * 70.0, y + (i as f32 - 1.0) * 110.0)));
             }
         }
+        // Fünf Minen, verstreut
+        Formation::MineField => {
+            for i in 0..5 {
+                let pos = Vec2::new(spawn_x + i as f32 * 110.0 + rng.range(0.0, 40.0), rng.range(-250.0, 250.0));
+                let mut mine = Enemy::new(EnemyKind::Mine, &mut rng);
+                mine.wave_phase = rng.range(0.0, 6.0);
+                members.push((mine, pos));
+            }
+        }
+        // Zwei Kreuzer, versetzt
+        Formation::Cruisers => {
+            let y = rng.range(80.0, 200.0);
+            let side = if rng.chance(0.5) { 1.0 } else { -1.0 };
+            for (i, dy) in [y * side, -y * side * 0.6].into_iter().enumerate() {
+                let mut cruiser = Enemy::new(EnemyKind::Cruiser, &mut rng);
+                cruiser.fire_timer = 1.5 + i as f32 * 1.6;
+                cruiser.wave_phase = i as f32 * 2.0;
+                members.push((cruiser, Vec2::new(spawn_x + 40.0 + i as f32 * 160.0, dy)));
+            }
+        }
+        // Eine Viererreihe aus Bits, manchmal zwei; jedes kippt zu seiner eigenen Zeit um.
+        Formation::Nibbles => {
+            let columns = if rng.chance(0.5) { 2 } else { 1 };
+            for c in 0..columns {
+                let y = rng.range(-150.0, 150.0);
+                for i in 0..4 {
+                    let mut bit = Enemy::new(EnemyKind::Bit, &mut rng);
+                    bit.fire_timer = rng.range(0.3, BIT_FLIP);
+                    bit.wave_phase = c as f32 * 1.5;
+                    members.push((bit, Vec2::new(spawn_x + c as f32 * 170.0, y + (i as f32 - 1.5) * 50.0)));
+                }
+            }
+        }
+        // Acht Pakete auf derselben Wellenbahn
+        Formation::Stream => {
+            let base = Vec2::new(rng.range(0.0, 6.0), rng.range(-120.0, 120.0));
+            for i in 0..8 {
+                let mut packet = Enemy::new(EnemyKind::Packet, &mut rng);
+                packet.center = base;
+                members.push((packet, Vec2::new(spawn_x + i as f32 * 45.0, base.y)));
+            }
+        }
         // Sechs Sucher, verstreut über die ganze Höhe
         Formation::Seekers => {
             for i in 0..6 {
@@ -486,12 +613,15 @@ fn fly(
     time: Res<Time>,
     field: Res<Playfield>,
     mut waves: ResMut<Waves>,
-    mut enemies: Query<(Entity, &mut Enemy, &mut Transform)>,
-    player: Single<&Transform, (With<Player>, Without<Enemy>)>,
+    phase: Res<State<GamePhase>>,
+    mut enemies: Query<(Entity, &mut Enemy, &mut Transform, &mut Shape)>,
+    player: Single<(&Transform, &Player), Without<Enemy>>,
 ) {
     let dt = time.delta_secs();
-    let target = player.translation.truncate();
-    for (entity, mut enemy, mut transform) in &mut enemies {
+    let (player_transform, player) = player.into_inner();
+    let target = player_transform.translation.truncate();
+    let protected = player.protected(*phase.get());
+    for (entity, mut enemy, mut transform, mut shape) in &mut enemies {
         enemy.age += dt;
         let t = enemy.age * 2.5 + enemy.wave_phase;
         // Geschwindigkeiten statt fester Bahnen, damit die Schutzblase Gegner wegschieben kann.
@@ -516,8 +646,46 @@ fn fly(
                 }
                 Vec2::new(-SEEKER_SPEED, enemy.heading.y)
             }
+            EnemyKind::Mine => Vec2::new(-90.0, (enemy.age * 1.3 + enemy.wave_phase).sin() * 25.0),
+            EnemyKind::Cruiser => Vec2::new(-105.0, (enemy.age * 0.8 + enemy.wave_phase).sin() * 25.0),
+            EnemyKind::Bit => Vec2::new(-130.0, (enemy.age * 1.5 + enemy.wave_phase).cos() * 30.0),
+            EnemyKind::Packet => Vec2::new(-PACKET_SPEED, 0.0),
         };
         transform.translation += (vel * dt).extend(0.0);
+        match enemy.kind {
+            // Alle Pakete eines Stroms folgen derselben Wellenbahn, die Höhe hängt nur von x ab.
+            EnemyKind::Packet => {
+                transform.translation.y = enemy.center.y + (transform.translation.x * 0.011 + enemy.center.x).sin() * 150.0;
+            }
+            EnemyKind::Bit => {
+                enemy.fire_timer -= dt;
+                if enemy.fire_timer <= 0.0 {
+                    enemy.fire_timer = BIT_FLIP;
+                    enemy.shielded = !enemy.shielded;
+                    *shape = bit_shape(enemy.shielded);
+                    enemy.color = shape.color;
+                }
+            }
+            EnemyKind::Mine => {
+                let near = transform.translation.truncate().distance(target) < MINE_TRIGGER;
+                if enemy.fuse.is_none() && near && !protected {
+                    enemy.fuse = Some(MINE_FUSE);
+                }
+                if let Some(fuse) = enemy.fuse {
+                    let fuse = fuse - dt;
+                    enemy.fuse = Some(fuse);
+                    // Hektisches Blinken, solange sie scharf ist.
+                    if (fuse * 12.0) as i32 % 2 == 0 {
+                        enemy.flash = 1.0;
+                    }
+                    if fuse <= 0.0 && enemy.health > 0.0 {
+                        enemy.detonated = true;
+                        enemy.health = 0.0;
+                    }
+                }
+            }
+            _ => {}
+        }
         match enemy.kind {
             EnemyKind::Freighter => transform.rotate_z(0.8 * dt),
             EnemyKind::Spinner => transform.rotate_z(3.0 * dt),
@@ -547,7 +715,7 @@ fn shoot(
 ) {
     let target = player.translation.truncate();
     for (mut enemy, transform) in &mut enemies {
-        if !matches!(enemy.kind, EnemyKind::Wobbler | EnemyKind::Turret) {
+        if !matches!(enemy.kind, EnemyKind::Wobbler | EnemyKind::Turret | EnemyKind::Cruiser) {
             continue;
         }
         enemy.fire_timer -= time.delta_secs();
@@ -562,6 +730,18 @@ fn shoot(
             enemy.fire_timer = rng.range(2.0, 4.5);
             let dir = (target - pos).normalize_or(Vec2::NEG_X);
             spawn_enemy_shot(&mut commands, pos, dir * ENEMY_SHOT_SPEED);
+        } else if enemy.kind == EnemyKind::Cruiser {
+            // Kreuzer: ein Fächer aus fünf Schüssen in Richtung Schiff.
+            if pos.x < target.x + 100.0 {
+                continue;
+            }
+            enemy.fire_timer = rng.range(3.8, 5.0);
+            let muzzle = pos + Vec2::new(-34.0, 0.0);
+            let aim = (target - muzzle).normalize_or(Vec2::NEG_X).to_angle();
+            for i in 0..5 {
+                let spread = (i as f32 - 2.0) * 0.16;
+                spawn_enemy_shot(&mut commands, muzzle, Vec2::from_angle(aim + spread) * ENEMY_SHOT_SPEED);
+            }
         } else {
             // Geschütz: eine Garbe aus drei Schüssen in Richtung Schiff, aus dem Rohr heraus.
             if pos.x < -field.half_width + 40.0 {
@@ -629,8 +809,23 @@ fn destroy(
         }
         let mut shape = shape.clone();
         shape.color = enemy.color;
-        let size = if enemy.kind == EnemyKind::Freighter { 1.6 } else { 1.0 };
+        let size = if matches!(enemy.kind, EnemyKind::Freighter | EnemyKind::Cruiser) { 1.6 } else { 1.0 };
         particles.explode(&mut rng, &shape, transform, size);
+        // Eine Mine, die von selbst hochgeht: Schussring, keine Punkte, die Welle gilt als entkommen.
+        if enemy.detonated {
+            info!("Mine gezündet");
+            let pos = transform.translation.truncate();
+            particles.ring(pos, ORANGE, 160.0, 0.3);
+            for i in 0..8 {
+                let dir = Vec2::from_angle(i as f32 / 8.0 * std::f32::consts::TAU);
+                spawn_enemy_shot(&mut commands, pos + dir * 14.0, dir * ENEMY_SHOT_SPEED * 0.85);
+            }
+            if let Some(wave) = enemy.wave {
+                waves.gone(wave, true);
+            }
+            commands.entity(entity).despawn();
+            continue;
+        }
         score.0 += enemy.kind.points();
         credits.flight += enemy.kind.credits();
         if enemy.kind == EnemyKind::Freighter {

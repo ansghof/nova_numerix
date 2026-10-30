@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::rng::Rng;
 use crate::HALF_HEIGHT;
-use crate::level::CurrentLevel;
+use crate::level::{Backdrop, CurrentLevel};
 
 /// Geschwindigkeit der drei Ebenen in Welt-Einheiten pro Sekunde.
 const LAYER_SPEED: [f32; 3] = [18.0, 55.0, 140.0];
@@ -55,12 +55,45 @@ fn scroll(time: Res<Time>, mut field: ResMut<Starfield>) {
     field.grid_offset = (field.grid_offset + LAYER_SPEED[2] * dt) % GRID_SPACING;
 }
 
-fn draw(mut gizmos: Gizmos, field: Res<Starfield>, level: Res<CurrentLevel>) {
+fn draw(mut gizmos: Gizmos, time: Res<Time>, field: Res<Starfield>, level: Res<CurrentLevel>) {
     for star in &field.stars {
         let brightness = [0.25, 0.55, 1.1][star.layer];
         let length = [1.5, 3.0, 7.0][star.layer];
         let color = LinearRgba::rgb(0.7 * brightness, 0.8 * brightness, 1.2 * brightness);
         gizmos.line_2d(star.pos, star.pos + Vec2::X * length, color);
+    }
+
+    match level.def().backdrop {
+        Backdrop::Stars => {}
+        Backdrop::GasGiant => {
+            // Ein riesiger Planet ragt von unten ins Bild, mit Wolkenbändern.
+            let center = Vec2::new(250.0, -HALF_HEIGHT - 330.0);
+            let radius = 560.0;
+            let rim = LinearRgba::rgb(0.55, 0.22, 0.05);
+            gizmos.circle_2d(center, radius, rim).resolution(160);
+            for (i, dy) in [430.0, 360.0, 280.0, 190.0].into_iter().enumerate() {
+                let half = (radius * radius - dy * dy).sqrt();
+                let shade = 0.32 - i as f32 * 0.05;
+                let band = LinearRgba::rgb(0.9 * shade, 0.4 * shade, 0.1 * shade);
+                let y = center.y + dy;
+                gizmos.line_2d(Vec2::new(center.x - half, y), Vec2::new(center.x + half, y), band);
+            }
+        }
+        Backdrop::DataRain => {
+            // Senkrechte Datenströme, die langsam herabrieseln.
+            let t = time.elapsed_secs();
+            for column in 0..34 {
+                let x = -SPAN + 60.0 + column as f32 * 80.0;
+                let speed = 60.0 + (column * 37 % 11) as f32 * 9.0;
+                let height = 2.0 * HALF_HEIGHT;
+                let y = HALF_HEIGHT - ((t * speed + column as f32 * 97.0) % height);
+                for k in 0..3 {
+                    let yk = y + k as f32 * 22.0;
+                    let fade = 0.35 - k as f32 * 0.1;
+                    gizmos.line_2d(Vec2::new(x, yk), Vec2::new(x, yk - 12.0), LinearRgba::rgb(0.1 * fade, 1.2 * fade, 0.3 * fade));
+                }
+            }
+        }
     }
 
     // Leuchtendes Gitter als Boden und Decke, perspektivisch nach außen auseinanderlaufend.
