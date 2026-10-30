@@ -9,6 +9,8 @@
 //! - `sieg`: den Boss sofort besiegen
 //! - `geld N`: N Credits aufs Konto
 //! - `tippe TEXT`: Text eintippen, etwa den Schiffsnamen
+//! - `maus X Y`: Mauszeiger auf X % der Breite und Y % der Höhe des Fensters
+//! - `klick`: linke Maustaste drücken und im nächsten Bild loslassen
 //! - `feuer an` / `feuer aus`: Leertaste dauerhaft halten
 //! - `zielen an` / `zielen aus`: das Schiff auf die richtige Bossplatte oder den offenen Kern ausrichten
 //! - `bild NAME`: Screenshot nach `target/test-NAME.png`
@@ -20,7 +22,10 @@
 
 use std::collections::VecDeque;
 
+use bevy::camera::RenderTarget;
 use bevy::input::InputSystems;
+use bevy::picking::pointer::{Location, PointerAction, PointerButton, PointerId, PointerInput};
+use bevy::window::{PrimaryWindow, WindowRef};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
@@ -48,7 +53,7 @@ impl Plugin for DevToolsPlugin {
                 Some((time.parse().ok()?, action.trim().to_string()))
             })
             .collect();
-        app.insert_resource(TestScript { steps, keys: VecDeque::new(), held: None, fire: false, aim: false })
+        app.insert_resource(TestScript { steps, keys: VecDeque::new(), held: None, fire: false, aim: false, cursor: Vec2::ZERO, release: false })
             .add_systems(PreUpdate, (play_script, aim).chain().after(InputSystems))
             .init_resource::<WaveShot>()
             .add_systems(Update, (log_phase, log_super, log_waves));
@@ -63,6 +68,10 @@ struct TestScript {
     held: Option<KeyCode>,
     fire: bool,
     aim: bool,
+    /// Wo der eingespielte Mauszeiger steht, in Fensterpunkten.
+    cursor: Vec2,
+    /// Die Maustaste wurde im letzten Bild gedrückt und wird jetzt losgelassen.
+    release: bool,
 }
 
 fn key(name: &str) -> Option<KeyCode> {
@@ -112,8 +121,20 @@ fn play_script(
     mut progress: ResMut<LevelProgress>,
     mut exit: MessageWriter<AppExit>,
     mut typed: MessageWriter<bevy::input::keyboard::KeyboardInput>,
-    window: Single<Entity, With<bevy::window::PrimaryWindow>>,
+    mut pointer: MessageWriter<PointerInput>,
+    window: Single<(Entity, &Window), With<PrimaryWindow>>,
 ) {
+    let (window, size) = (window.0, window.1.size());
+    let Some(target) = RenderTarget::Window(WindowRef::Entity(window)).normalize(Some(window)) else {
+        return;
+    };
+    let mut mouse = |position: Vec2, action: PointerAction| {
+        pointer.write(PointerInput::new(PointerId::Mouse, Location { target: target.clone(), position }, action));
+    };
+    if script.release {
+        script.release = false;
+        mouse(script.cursor, PointerAction::Release(PointerButton::Primary));
+    }
     if script.fire {
         keys.press(KeyCode::Space);
     }
@@ -142,9 +163,19 @@ fn play_script(
                     state: bevy::input::ButtonState::Pressed,
                     text: Some(s.as_str().into()),
                     repeat: false,
-                    window: *window,
+                    window,
                 });
             }
+        } else if let Some(rest) = action.strip_prefix("maus ") {
+            let percent: Vec<f32> = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+            if let [x, y] = percent[..] {
+                let to = Vec2::new(x, y) / 100.0 * size;
+                mouse(to, PointerAction::Move { delta: to - script.cursor });
+                script.cursor = to;
+            }
+        } else if action == "klick" {
+            mouse(script.cursor, PointerAction::Press(PointerButton::Primary));
+            script.release = true;
         } else if action == "sieg" {
             if let Some(boss) = &mut boss {
                 boss.health = 0.0;

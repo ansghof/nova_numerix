@@ -7,6 +7,7 @@
 //!
 //! Bedienung nur mit der Tastatur: W/S wählen, Enter bestätigen, Esc zurück.
 
+use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
 use crate::AppState;
@@ -222,9 +223,30 @@ pub struct Shipyard {
     haggled: Vec<Item>,
     /// Quibbos Laune und wie lange sie noch anhält.
     mood: (Mood, f32),
+    /// Ein Mausklick auf eine Zeile, ausgewertet wie Enter.
+    clicked: Option<usize>,
 }
 
 impl Shipyard {
+    /// Die Maus zeigt auf eine Zeile der Übersicht oder des Ladens.
+    fn selected(&self) -> Option<usize> {
+        match &self.view {
+            View::Hub { selected, .. } | View::Shop { selected, .. } => Some(*selected),
+            View::Training { .. } => None,
+        }
+    }
+
+    fn hover(&mut self, row: usize) {
+        match &mut self.view {
+            View::Hub { selected, .. } if *selected != row => *selected = row,
+            View::Shop { selected, haggle: None, intro: false, feedback } if *selected != row => {
+                *selected = row;
+                *feedback = None;
+            }
+            _ => {}
+        }
+    }
+
     /// Lösung der gerade offenen Aufgabe, für automatische Testläufe.
     #[cfg(debug_assertions)]
     pub fn open_answer(&self) -> Option<u32> {
@@ -275,6 +297,7 @@ fn enter(
         discounts: Vec::new(),
         haggled: Vec::new(),
         mood: (Mood::Neutral, 0.0),
+        clicked: None,
     });
     let root = commands
         .spawn((
@@ -364,6 +387,8 @@ fn update(
     // Zeitbalken laufen jedes Bild; neu gezeichnet wird nur, wenn sich etwas Sichtbares ändert.
     let mut changed = keys.get_just_pressed().next().is_some();
     let yard = shipyard.bypass_change_detection();
+    let clicked = yard.clicked.take();
+    let confirm = |keys: &ButtonInput<KeyCode>| confirm(keys) || clicked.is_some();
     let mut next_view = None;
 
     match &mut yard.view {
@@ -383,6 +408,7 @@ fn update(
                 }
             }
             if confirm(&keys) {
+                changed = true;
                 match *selected {
                     0 => next_view = Some(View::Training { run: None, wait: 0.0, feedback: None, earned: 0 }),
                     1 => next_view = Some(View::Shop { selected: 0, haggle: None, feedback: None, intro: true }),
@@ -434,6 +460,7 @@ fn update(
                 next_view = Some(View::Hub { selected: 1, level: 0 });
             } else if confirm(&keys) || keys.just_pressed(KeyCode::Space) {
                 *intro = false;
+                changed = true;
             }
         }
         View::Shop { selected, haggle, feedback, .. } => {
@@ -508,6 +535,7 @@ fn update(
                     };
                 }
                 if confirm(&keys) {
+                    changed = true;
                     *feedback = Some(match list {
                         None => ("Das gibt es gerade nicht.".into(), DIM),
                         Some(list) => {
@@ -583,6 +611,27 @@ fn update_bar(shipyard: Res<Shipyard>, mut bars: Query<(&mut Node, &mut Backgrou
 
 fn text(commands: &mut Commands, parent: Entity, value: impl Into<String>, color: Color, size: f32) {
     commands.spawn((Text::new(value), TextColor(color), font(size), ChildOf(parent)));
+}
+
+/// Eine Zeile, die auf die Maus reagiert: Zeigen wählt sie aus, Drücken bestätigt wie Enter.
+/// Schon das Drücken zählt, weil die Zeile bis zum Loslassen neu aufgebaut sein kann.
+fn clickable_row(commands: &mut Commands, parent: Entity, index: usize, selected: bool) -> Entity {
+    let row = row(commands, parent, selected);
+    commands
+        .entity(row)
+        .observe(move |press: On<PointerPress>, mut yard: ResMut<Shipyard>| {
+            if press.button == PointerButton::Primary {
+                yard.hover(index);
+                yard.clicked = Some(index);
+            }
+        })
+        .observe(move |_: On<PointerOver>, mut yard: ResMut<Shipyard>| {
+            // Nur bei echtem Wechsel anfassen, sonst würde jedes Neuzeichnen das nächste auslösen.
+            if yard.bypass_change_detection().selected() != Some(index) {
+                yard.hover(index);
+            }
+        });
+    row
 }
 
 fn row(commands: &mut Commands, parent: Entity, selected: bool) -> Entity {
@@ -682,10 +731,10 @@ fn render(
                 format!("Abflug  ◀  Level {}: {} · {}  ▶", level + 1, LEVELS[*level].world, LEVELS[*level].topic),
             ];
             for (i, label) in options.into_iter().enumerate() {
-                let r = row(c, content, i == *selected);
+                let r = clickable_row(c, content, i, i == *selected);
                 text(c, r, label, TEXT, 20.0);
             }
-            text(c, content, "W/S wählen · A/D Level wechseln · Enter bestätigen", DIM, 14.0);
+            text(c, content, "W/S oder Maus wählen · A/D Level wechseln · Enter oder Klick bestätigen", DIM, 14.0);
         }
         View::Training { run, feedback, earned, .. } => {
             text(c, content, "Rechentraining", FRAME, 32.0);
@@ -720,7 +769,9 @@ fn render(
                 text(c, content, format!("• {rule}"), TEXT, 16.0);
             }
             text(c, content, format!("Du hast {} Credits.", credits.bank), OKAY, 18.0);
-            text(c, content, "Enter: Laden betreten · Esc: zurück zur Werft", DIM, 14.0);
+            let enter = clickable_row(c, content, 0, true);
+            text(c, enter, "Laden betreten", TEXT, 20.0);
+            text(c, content, "Enter oder Klick: Laden betreten · Esc: zurück zur Werft", DIM, 14.0);
         }
         View::Shop { selected, haggle, feedback, .. } => {
             text(c, content, "Quibbos Laden", FRAME, 32.0);
@@ -733,7 +784,7 @@ fn render(
             text(c, content, format!("{} Credits", credits.bank), OKAY, 22.0);
             for (i, item) in ITEMS.iter().enumerate() {
                 let (name, description, list) = item.offer(&ship);
-                let r = row(c, content, i == *selected);
+                let r = clickable_row(c, content, i, i == *selected);
                 let labels = c
                     .spawn((Node { flex_direction: FlexDirection::Column, ..default() }, ChildOf(r)))
                     .id();
@@ -778,7 +829,7 @@ fn render(
             if let Some((message, color)) = feedback {
                 text(c, content, message.clone(), *color, 17.0);
             }
-            text(c, content, "W/S wählen · Enter kaufen · V verhandeln · Esc zurück", DIM, 14.0);
+            text(c, content, "W/S oder Maus wählen · Enter oder Klick kaufen · V verhandeln · Esc zurück", DIM, 14.0);
         }
     }
 }

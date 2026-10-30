@@ -2,12 +2,13 @@
 //! einem der fünf Slots (mit Schiffsnamen), Spielstand laden oder beenden. Esc im Flug führt
 //! zurück ins Menü; die Welt steht still, solange es offen ist.
 //!
-//! Bedienung mit Tastatur (W/S oder Pfeiltasten, Enter, Esc) oder Maus.
+//! Bedienung mit Tastatur (W/S oder Pfeiltasten, Enter, Esc) oder Maus. Die Knöpfe werden nur
+//! neu aufgebaut, wenn sich der Inhalt der Seite ändert; die Auswahl färbt sie bloß um. Sonst
+//! verschwände der Knopf unter dem Mauszeiger, bevor der Klick ihn erreicht.
 
 use bevy::app::AppExit;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
-use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
@@ -43,7 +44,7 @@ impl Plugin for MenuPlugin {
                 Update,
                 (
                     (fallback_splash, run_splash).run_if(in_state(AppState::Splash)),
-                    (hover_select, navigate, type_name, render).chain().run_if(in_state(AppState::Menu)),
+                    (navigate, type_name, render, highlight).chain().run_if(in_state(AppState::Menu)),
                     open_menu.run_if(in_state(AppState::Playing)),
                 ),
             );
@@ -95,6 +96,40 @@ struct Menu {
     page: Page,
     /// Ein Mausklick auf eine Zeile, ausgewertet wie Enter.
     clicked: Option<usize>,
+}
+
+impl Menu {
+    /// Die hervorgehobene Zeile; das Namensfeld ist immer hervorgehoben.
+    fn selected(&self) -> usize {
+        match &self.page {
+            Page::Main { selected } | Page::Slots { selected, .. } => *selected,
+            Page::Name { .. } => 0,
+        }
+    }
+
+    /// Die Maus zeigt auf eine Zeile.
+    fn hover(&mut self, row: usize) {
+        match &mut self.page {
+            Page::Main { selected } if *selected != row => *selected = row,
+            Page::Slots { selected, confirm_overwrite, note, .. } if *selected != row => {
+                *selected = row;
+                *confirm_overwrite = false;
+                *note = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Alles, was die Seite ausmacht, außer der Auswahl. Ändert es sich, wird neu aufgebaut.
+    fn layout(&self) -> String {
+        match &self.page {
+            Page::Main { .. } => "main".into(),
+            Page::Slots { mode, confirm_overwrite, note, .. } => {
+                format!("slots {} {confirm_overwrite} {note:?}", *mode == SlotMode::NewGame)
+            }
+            Page::Name { slot, name } => format!("name {slot} {name}"),
+        }
+    }
 }
 
 fn font(size: f32) -> TextFont {
@@ -206,18 +241,6 @@ fn row_count(page: &Page, started: bool) -> usize {
     }
 }
 
-fn hover_select(rows: Query<(&MenuRow, &Hovered), Changed<Hovered>>, mut menu: ResMut<Menu>) {
-    for (row, hovered) in &rows {
-        if !hovered.get() {
-            continue;
-        }
-        match &mut menu.page {
-            Page::Main { selected } | Page::Slots { selected, .. } if *selected != row.0 => *selected = row.0,
-            _ => {}
-        }
-    }
-}
-
 fn navigate(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
@@ -290,7 +313,7 @@ fn navigate(
         Page::Name { slot, name } => {
             if back {
                 new_page = Some(Page::Slots { mode: SlotMode::NewGame, selected: *slot, confirm_overwrite: false, note: None });
-            } else if pressed(KeyCode::Enter, KeyCode::NumpadEnter) && !name.trim().is_empty() {
+            } else if (pressed(KeyCode::Enter, KeyCode::NumpadEnter) || clicked == Some(1)) && !name.trim().is_empty() {
                 commands.run_system_cached_with(new_game, (*slot, name.trim().to_string()));
             }
         }
@@ -337,7 +360,6 @@ fn row(commands: &mut Commands, parent: Entity, index: usize, selected: bool, wi
     let row = commands
         .spawn((
             MenuRow(index),
-            Hovered::default(),
             Node {
                 width: Val::Px(width),
                 flex_direction: FlexDirection::Column,
@@ -352,11 +374,16 @@ fn row(commands: &mut Commands, parent: Entity, index: usize, selected: bool, wi
             ChildOf(parent),
         ))
         .id();
-    commands.entity(row).observe(move |click: On<PointerClick>, mut menu: ResMut<Menu>| {
-        if click.button == PointerButton::Primary {
-            menu.clicked = Some(index);
-        }
-    });
+    // Schon das Drücken zählt: Bis zum Loslassen kann die Seite gewechselt haben.
+    commands
+        .entity(row)
+        .observe(move |press: On<PointerPress>, mut menu: ResMut<Menu>| {
+            if press.button == PointerButton::Primary {
+                menu.hover(index);
+                menu.clicked = Some(index);
+            }
+        })
+        .observe(move |_: On<PointerOver>, mut menu: ResMut<Menu>| menu.hover(index));
     row
 }
 
@@ -383,10 +410,14 @@ fn render(
     started: Res<FlightStarted>,
     saves: Res<Saves>,
     column: Single<Entity, With<MenuColumn>>,
+    mut built: Local<Option<(Entity, String)>>,
 ) {
-    if !menu.is_changed() {
+    // Ein neu geöffnetes Menü hat eine neue Spalte und wird in jedem Fall aufgebaut.
+    let layout = (*column, menu.layout());
+    if built.as_ref() == Some(&layout) {
         return;
     }
+    *built = Some(layout);
     let column = *column;
     commands.entity(column).despawn_related::<Children>();
     let c = &mut commands;
@@ -403,7 +434,7 @@ fn render(
                 let r = row(c, column, i, i == *selected, 280.0);
                 text(c, r, label, TEXT, 24.0);
             }
-            hint(c, column, "W/S oder Pfeiltasten wählen · Enter bestätigen · im Flug: Esc für dieses Menü");
+            hint(c, column, "W/S, Pfeiltasten oder Maus wählen · Enter oder Klick bestätigen · im Flug: Esc für dieses Menü");
         }
         Page::Slots { mode, selected, confirm_overwrite, note } => {
             let title = match mode {
@@ -426,15 +457,27 @@ fn render(
             } else if let Some(note) = note {
                 hint(c, column, note);
             } else {
-                hint(c, column, "W/S wählen · Enter bestätigen · Esc zurück");
+                hint(c, column, "W/S oder Maus wählen · Enter oder Klick bestätigen · Esc zurück");
             }
         }
         Page::Name { slot, name } => {
             text(c, column, format!("Slot {} · Wie heißt dein Schiff?", slot + 1), TEXT, 24.0);
             let field = row(c, column, 0, true, 420.0);
             text(c, field, format!("{name}_"), TEXT, 30.0);
+            let go = row(c, column, 1, false, 280.0);
+            text(c, go, "Losfliegen", TEXT, 22.0);
             hint(c, column, "Namen tippen · Rücktaste löscht · Enter: losfliegen · Esc zurück");
         }
+    }
+}
+
+/// Die gewählte Zeile leuchtet, die anderen bleiben dunkel.
+fn highlight(menu: Res<Menu>, mut rows: Query<(&MenuRow, &mut BorderColor, &mut BackgroundColor)>) {
+    let selected = menu.selected();
+    for (row, mut border, mut background) in &mut rows {
+        let on = row.0 == selected;
+        *border = BorderColor::from(if on { FRAME } else { FRAME_DIM });
+        background.0 = if on { SELECTED } else { BUTTON };
     }
 }
 
