@@ -52,11 +52,7 @@ impl Plugin for TaskPlugin {
         app.insert_resource(Topic(Box::new(SmallTimesTable::new())))
             .init_resource::<PendingTasks>()
             .init_resource::<SlowChips>()
-            .add_systems(Update, |mut started: MessageReader<LevelStarted>, mut pending: ResMut<PendingTasks>| {
-                if started.read().last().is_some() {
-                    pending.clear();
-                }
-            })
+            .add_systems(Update, reset_on_start)
             .add_systems(OnEnter(GamePhase::Task), spawn_popup)
             .add_systems(OnExit(GamePhase::Return), close_popup)
             .add_systems(
@@ -108,6 +104,16 @@ pub trait TaskGenerator: Send + Sync + 'static {
     fn next(&mut self, rng: &mut Rng) -> Task;
     /// Wie die Aufgabe ausging, damit das Thema schwache Fakten öfter stellt.
     fn record(&mut self, task: &Task, outcome: &Outcome);
+    /// Der Lernstand zum Speichern: ein Gewicht je Fakt.
+    fn weights(&self) -> Vec<f32>;
+    /// Einen gespeicherten Lernstand übernehmen; passt die Länge nicht, bleibt alles beim Alten.
+    fn set_weights(&mut self, weights: &[f32]);
+}
+
+fn restore(target: &mut [f32], weights: &[f32]) {
+    if target.len() == weights.len() {
+        target.copy_from_slice(weights);
+    }
 }
 
 /// Kleines Einmaleins von 2 × 2 bis 10 × 10. Jedes Fakt hat ein Gewicht: Fehler erhöhen es,
@@ -169,6 +175,14 @@ impl TaskGenerator for SmallTimesTable {
     fn record(&mut self, task: &Task, outcome: &Outcome) {
         reweigh(&mut self.weights[task.fact], outcome);
     }
+
+    fn weights(&self) -> Vec<f32> {
+        self.weights.clone()
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        restore(&mut self.weights, weights);
+    }
 }
 
 /// Quadratzahlen von 2² bis 15². Lückenaufgaben fragen nach der Zahl, die quadriert wurde
@@ -204,6 +218,14 @@ impl TaskGenerator for Squares {
 
     fn record(&mut self, task: &Task, outcome: &Outcome) {
         reweigh(&mut self.weights[task.fact], outcome);
+    }
+
+    fn weights(&self) -> Vec<f32> {
+        self.weights.clone()
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        restore(&mut self.weights, weights);
     }
 }
 
@@ -351,6 +373,23 @@ fn font(size: f32) -> TextFont {
         font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
         ..TextFont::from_font_size(size)
     }
+}
+
+/// Neues Level: offene Aufgaben verfallen, ein noch offenes Fenster verschwindet.
+fn reset_on_start(
+    mut commands: Commands,
+    mut started: MessageReader<LevelStarted>,
+    mut pending: ResMut<PendingTasks>,
+    popups: Query<Entity, With<Popup>>,
+) {
+    if started.read().last().is_none() {
+        return;
+    }
+    pending.clear();
+    for popup in &popups {
+        commands.entity(popup).despawn();
+    }
+    commands.remove_resource::<ActiveTask>();
 }
 
 fn count_freight(

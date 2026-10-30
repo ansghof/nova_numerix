@@ -177,7 +177,14 @@ Zeitlupen-Chips (+50 % Zeit für X Aufgaben), Rümpfe, Lackierungen.
   Zeit um 1 %, falsch 0 % und Quibbo redet über den Artikel nicht mehr. Ein Rabatt gilt
   für einen Kauf.
 - Der Schild bleibt zwischen den Leveln, wie er ist; Reparatur kostet.
-- Noch offen: Panzerung, neue Rümpfe, Speichern.
+- Beim Betreten des Ladens erklärt Quibbo (als Neon-Figur neben dem Ladentisch), wie Credits,
+  Kaufen und Verhandeln funktionieren. Er freut sich über Käufe und gute Rechnungen und läuft
+  rot an, wenn man ihn mit einer falschen Antwort beleidigt.
+- Speichern: 5 Slots, automatisch in der Werft (Ankunft, jeder Kauf, Training, Abflug).
+  Gespeichert werden Schiffsname, Credits, Waffen, Schild, gekaufte Extras, freigeschaltete
+  Level, Punkte und der Lernstand je Thema. Wer im Flug beendet, startet beim Laden wieder
+  in der Werft vor diesem Flug. Dateien liegen unter %APPDATA%/NovaNumerix.
+- Noch offen: Panzerung, neue Rümpfe.
 
 ## Level
 

@@ -9,6 +9,10 @@ publish = false
 # system_font_discovery: Die eingebaute Schrift hat keine Umlaute, also Systemschriften nutzen.
 # Für den Web-Build muss später eine Schrift mitgeliefert werden.
 bevy = { version = "0.20", features = ["system_font_discovery"] }
+# Lokale Uhrzeit für den Zeitstempel der Spielstände.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+ron = "0.12"
+serde = { version = "1", features = ["derive"] }
 
 # Bevy-Systeme haben naturgemäß viele Parameter und lange Query-Typen.
 [lints.clippy]

@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 
 use crate::neon::{MAGENTA, VIOLET};
+use crate::save::Mastery;
 use crate::task::{FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
 use crate::{AppState, GamePhase, Gameplay};
 
@@ -134,10 +135,11 @@ impl LevelStats {
     }
 }
 
-fn begin_level(
+pub fn begin_level(
     mut started: MessageReader<LevelStarted>,
     mut current: ResMut<CurrentLevel>,
     mut topic: ResMut<Topic>,
+    mut mastery: ResMut<Mastery>,
     mut progress: ResMut<LevelProgress>,
     mut stats: ResMut<LevelStats>,
     mut time: ResMut<Time<Virtual>>,
@@ -148,8 +150,14 @@ fn begin_level(
         return;
     };
     info!("Level {} beginnt", index + 1);
+    // Lernstand des bisherigen Themas aufheben, den des neuen wiederherstellen.
+    mastery.0.insert(current.def().topic.to_string(), topic.0.weights());
     current.0 = *index;
-    topic.0 = (LEVELS[*index].make_topic)();
+    let def = current.def();
+    topic.0 = (def.make_topic)();
+    if let Some(weights) = mastery.0.get(def.topic) {
+        topic.0.set_weights(weights);
+    }
     progress.elapsed = 0.0;
     *stats = LevelStats::default();
     time.unpause();

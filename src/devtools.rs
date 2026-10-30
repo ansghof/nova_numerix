@@ -8,6 +8,7 @@
 //! - `boss`: direkt ans Levelende springen
 //! - `sieg`: den Boss sofort besiegen
 //! - `geld N`: N Credits aufs Konto
+//! - `tippe TEXT`: Text eintippen, etwa den Schiffsnamen
 //! - `feuer an` / `feuer aus`: Leertaste dauerhaft halten
 //! - `zielen an` / `zielen aus`: das Schiff auf die richtige Bossplatte oder den offenen Kern ausrichten
 //! - `bild NAME`: Screenshot nach `target/test-NAME.png`
@@ -110,6 +111,8 @@ fn play_script(
     mut credits: ResMut<Credits>,
     mut progress: ResMut<LevelProgress>,
     mut exit: MessageWriter<AppExit>,
+    mut typed: MessageWriter<bevy::input::keyboard::KeyboardInput>,
+    window: Single<Entity, With<bevy::window::PrimaryWindow>>,
 ) {
     if script.fire {
         keys.press(KeyCode::Space);
@@ -130,6 +133,18 @@ fn play_script(
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
         } else if let Some(name) = action.strip_prefix("wellenbild ") {
             commands.insert_resource(WaveShot { name: Some(name.to_string()), countdown: None });
+        } else if let Some(text) = action.strip_prefix("tippe ") {
+            for c in text.chars() {
+                let s = c.to_string();
+                typed.write(bevy::input::keyboard::KeyboardInput {
+                    key_code: KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
+                    logical_key: bevy::input::keyboard::Key::Character(s.as_str().into()),
+                    state: bevy::input::ButtonState::Pressed,
+                    text: Some(s.as_str().into()),
+                    repeat: false,
+                    window: *window,
+                });
+            }
         } else if action == "sieg" {
             if let Some(boss) = &mut boss {
                 boss.health = 0.0;

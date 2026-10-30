@@ -5,10 +5,9 @@ use bevy::prelude::*;
 
 use crate::level::{CHECKPOINT_SHARE, LevelProgress};
 use crate::player::{Loadout, MAX_HEALTH, Player};
+use crate::save::ShipName;
 use crate::superweapon::{CHARGES_PER_LEVEL, SuperWeapon};
 
-/// Vorerst fest; später kommt der Name aus dem Speicherstand.
-const SHIP_NAME: &str = "Sternfalke";
 const TEXT: Color = Color::srgb(0.8, 0.9, 1.0);
 const DIM: Color = Color::srgb(0.08, 0.1, 0.2);
 const SHIELD: Color = Color::srgb(0.3, 0.85, 1.0);
@@ -23,7 +22,7 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Score>()
             .add_systems(Startup, spawn_hud)
-            .add_systems(Update, (update_hud, update_charges, update_progress));
+            .add_systems(Update, (update_hud, update_charges, update_progress, update_ship_name));
     }
 }
 
@@ -45,6 +44,9 @@ struct ChargePip(u8);
 
 #[derive(Component)]
 struct ProgressFill;
+
+#[derive(Component)]
+struct ShipNameText;
 
 #[derive(Component)]
 struct BossLabel;
@@ -135,7 +137,8 @@ fn spawn_hud(mut commands: Commands) {
     commands.spawn((BossLabel, Text::new("Boss"), TextColor(BOSS), font(15.0), ChildOf(top)));
 
     commands.spawn((
-        Text::new(SHIP_NAME),
+        ShipNameText,
+        Text::new(""),
         TextColor(SHIELD),
         font(18.0),
         Node { position_type: PositionType::Absolute, right: Val::Px(16.0), top: Val::Px(12.0), ..default() },
@@ -182,5 +185,11 @@ fn update_progress(
     } else if label.0.0 != "Boss" {
         label.0.0 = "Boss".into();
         label.1.0 = BOSS;
+    }
+}
+
+fn update_ship_name(name: Res<ShipName>, mut text: Single<&mut Text, With<ShipNameText>>) {
+    if name.is_changed() || text.0.is_empty() {
+        text.0 = name.0.clone();
     }
 }

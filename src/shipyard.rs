@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use crate::AppState;
 use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted};
 use crate::player::{Loadout, MAX_HEALTH, MAX_LEVEL, Player};
+use crate::quibbo::QuibboArt;
 use crate::rng::Rng;
 use crate::superweapon::SuperWeapon;
 use crate::task::{FAST_SHARE, Outcome, SlowChips, Task, Topic, read_digit};
@@ -47,6 +48,10 @@ const PANEL: Color = Color::srgba(0.02, 0.04, 0.12, 0.9);
 const ROW: Color = Color::srgba(0.05, 0.08, 0.2, 0.8);
 const ROW_SELECTED: Color = Color::srgba(0.1, 0.25, 0.45, 0.95);
 const BAR_BACK: Color = Color::srgb(0.08, 0.1, 0.2);
+/// So lange bleibt Quibbo erfreut oder beleidigt, bevor er wieder neutral schaut.
+const MOOD_TIME: f32 = 3.0;
+const BLINK_EVERY: f32 = 3.2;
+const BLINK_TIME: f32 = 0.15;
 
 pub struct ShipyardPlugin;
 
@@ -56,7 +61,7 @@ impl Plugin for ShipyardPlugin {
             .init_resource::<Training>()
             .add_systems(OnEnter(AppState::Shipyard), enter)
             .add_systems(OnExit(AppState::Shipyard), leave)
-            .add_systems(Update, (update, update_bar, render).chain().run_if(in_state(AppState::Shipyard)))
+            .add_systems(Update, (update, update_bar, render, animate_quibbo).chain().run_if(in_state(AppState::Shipyard)))
             .add_systems(Update, new_visit_after_flight);
     }
 }
@@ -190,7 +195,15 @@ impl Item {
 enum View {
     Hub { selected: usize, level: usize },
     Training { run: Option<Run>, wait: f32, feedback: Option<(String, Color)>, earned: u32 },
-    Shop { selected: usize, haggle: Option<Haggle>, feedback: Option<(String, Color)> },
+    /// `intro`: Beim Betreten erklärt Quibbo zuerst, wie sein Laden funktioniert.
+    Shop { selected: usize, haggle: Option<Haggle>, feedback: Option<(String, Color)>, intro: bool },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mood {
+    Neutral,
+    Pleased,
+    Offended,
 }
 
 /// Eine Verhandlung mit Quibbo: eine Aufgabe, danach steht seine Antwort kurz da.
@@ -207,6 +220,8 @@ pub struct Shipyard {
     discounts: Vec<(Item, u32)>,
     /// Hier wurde schon verhandelt; ein zweites Mal lässt Quibbo nicht mit sich reden.
     haggled: Vec<Item>,
+    /// Quibbos Laune und wie lange sie noch anhält.
+    mood: (Mood, f32),
 }
 
 impl Shipyard {
@@ -234,6 +249,9 @@ struct Content;
 #[derive(Component)]
 struct RunBar;
 
+#[derive(Component)]
+struct QuibboPortrait;
+
 fn font(size: f32) -> TextFont {
     TextFont {
         font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
@@ -244,6 +262,7 @@ fn font(size: f32) -> TextFont {
 fn enter(
     mut commands: Commands,
     assets: Res<AssetServer>,
+    quibbo: Res<QuibboArt>,
     current: Res<CurrentLevel>,
     campaign: Res<Campaign>,
     mut time: ResMut<Time<Virtual>>,
@@ -251,7 +270,12 @@ fn enter(
     time.pause();
     // Vorgeschlagen wird das nächste Level, sofern es schon freigeschaltet ist.
     let level = (current.0 + 1).min(campaign.unlocked - 1);
-    commands.insert_resource(Shipyard { view: View::Hub { selected: 0, level }, discounts: Vec::new(), haggled: Vec::new() });
+    commands.insert_resource(Shipyard {
+        view: View::Hub { selected: 0, level },
+        discounts: Vec::new(),
+        haggled: Vec::new(),
+        mood: (Mood::Neutral, 0.0),
+    });
     let root = commands
         .spawn((
             ShipyardRoot,
@@ -261,6 +285,7 @@ fn enter(
                 height: Val::Percent(100.0),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
+                column_gap: Val::Px(24.0),
                 ..default()
             },
             ImageNode {
@@ -272,6 +297,13 @@ fn enter(
             GlobalZIndex(30),
         ))
         .id();
+    // Quibbo steht neben dem Ladentisch; sichtbar nur im Laden.
+    commands.spawn((
+        QuibboPortrait,
+        Node { width: Val::Px(260.0), height: Val::Px(260.0), display: Display::None, ..default() },
+        ImageNode { image: quibbo.open.clone(), ..default() },
+        ChildOf(root),
+    ));
     commands.spawn((
         Content,
         Node {
@@ -353,7 +385,7 @@ fn update(
             if confirm(&keys) {
                 match *selected {
                     0 => next_view = Some(View::Training { run: None, wait: 0.0, feedback: None, earned: 0 }),
-                    1 => next_view = Some(View::Shop { selected: 0, haggle: None, feedback: None }),
+                    1 => next_view = Some(View::Shop { selected: 0, haggle: None, feedback: None, intro: true }),
                     _ => {
                         started.write(LevelStarted(*level));
                     }
@@ -397,7 +429,14 @@ fn update(
                 }
             }
         }
-        View::Shop { selected, haggle, feedback } => {
+        View::Shop { intro, .. } if *intro => {
+            if keys.just_pressed(KeyCode::Escape) {
+                next_view = Some(View::Hub { selected: 1, level: 0 });
+            } else if confirm(&keys) || keys.just_pressed(KeyCode::Space) {
+                *intro = false;
+            }
+        }
+        View::Shop { selected, haggle, feedback, .. } => {
             let ship = ShipState {
                 health: player.health,
                 laser: loadout.laser,
@@ -432,6 +471,12 @@ fn update(
                         }
                     };
                     yard.haggled.push(h.item);
+                    let mood = match outcome {
+                        Outcome::Correct { .. } => Mood::Pleased,
+                        Outcome::TimedOut => Mood::Neutral,
+                        Outcome::Wrong => Mood::Offended,
+                    };
+                    yard.mood = (mood, MOOD_TIME);
                     if discount > 0 {
                         yard.discounts.push((h.item, discount));
                     }
@@ -480,6 +525,7 @@ fn update(
                                     Item::SuperCharge => weapon.bought += 1,
                                     Item::SlowChip => chips.0 += CHIPS_PER_PACK,
                                 }
+                                yard.mood = (Mood::Pleased, MOOD_TIME);
                                 (format!("Gekauft: {name} für {price} Credits."), GOOD)
                             }
                         }
@@ -489,6 +535,13 @@ fn update(
         }
     }
 
+    if yard.mood.0 != Mood::Neutral {
+        yard.mood.1 -= dt;
+        if yard.mood.1 <= 0.0 {
+            yard.mood = (Mood::Neutral, 0.0);
+            changed = true;
+        }
+    }
     if let Some(view) = next_view {
         // Zurück in die Übersicht mit dem vorgeschlagenen Level.
         let view = match view {
@@ -590,10 +643,18 @@ fn render(
     chips: Res<SlowChips>,
     player: Single<&Player>,
     content: Single<Entity, With<Content>>,
+    mut portrait: Single<(&mut Node, &mut ImageNode), With<QuibboPortrait>>,
 ) {
     if !shipyard.is_changed() {
         return;
     }
+    let in_shop = matches!(shipyard.view, View::Shop { .. });
+    portrait.0.display = if in_shop { Display::Flex } else { Display::None };
+    portrait.1.color = match shipyard.mood.0 {
+        Mood::Neutral => Color::WHITE,
+        Mood::Pleased => Color::srgb(1.0, 1.0, 0.8),
+        Mood::Offended => Color::srgb(1.0, 0.35, 0.35),
+    };
     let content = *content;
     commands.entity(content).despawn_related::<Children>();
     let ship = ShipState {
@@ -616,8 +677,8 @@ fn render(
             text(c, content, format!("Schild {:.0}/{MAX_HEALTH:.0} · {weapons}", ship.health), TEXT, 18.0);
             let left = FULL_TASKS.saturating_sub(training.solved);
             let options = [
-                format!("Rechentraining · noch {left} Aufgaben mit voller Auszahlung"),
-                "Quibbos Laden".to_string(),
+                format!("Rechentraining: Aufgaben lösen, Credits verdienen (noch {left} voll)"),
+                "Quibbos Laden: Waffen, Reparatur und mehr kaufen".to_string(),
                 format!("Abflug  ◀  Level {}: {} · {}  ▶", level + 1, LEVELS[*level].world, LEVELS[*level].topic),
             ];
             for (i, label) in options.into_iter().enumerate() {
@@ -645,9 +706,30 @@ fn render(
             }
             text(c, content, "Nummernblock · Enter · Esc zurück zur Werft", DIM, 14.0);
         }
-        View::Shop { selected, haggle, feedback } => {
+        View::Shop { intro: true, .. } => {
             text(c, content, "Quibbos Laden", FRAME, 32.0);
-            text(c, content, "„Willkommen! Wer gut rechnet, zahlt weniger.“", DIM, 16.0);
+            text(c, content, "„Willkommen in meinem Laden, Pilot! So läuft das hier:“", OKAY, 18.0);
+            let rules = [
+                "Credits verdienst du im Flug und im Rechentraining der Werft. Zu wenig Credits? Erst trainieren!",
+                "W/S: Ware wählen · Enter: kaufen.",
+                "V: verhandeln. Ich stelle dir eine Aufgabe. Schnell und richtig gibt bis zu 10 % Rabatt, Zeit um 1 %.",
+                "Rechnest du falsch, rede ich über diese Ware nicht mehr. Einmal verhandeln je Ware und Besuch.",
+                "Ein Rabatt gilt für einen Kauf.",
+            ];
+            for rule in rules {
+                text(c, content, format!("• {rule}"), TEXT, 16.0);
+            }
+            text(c, content, format!("Du hast {} Credits.", credits.bank), OKAY, 18.0);
+            text(c, content, "Enter: Laden betreten · Esc: zurück zur Werft", DIM, 14.0);
+        }
+        View::Shop { selected, haggle, feedback, .. } => {
+            text(c, content, "Quibbos Laden", FRAME, 32.0);
+            let greeting = match shipyard.mood.0 {
+                Mood::Neutral => "„Wer gut rechnet, zahlt weniger.“",
+                Mood::Pleased => "„Ein Vergnügen, mit dir Geschäfte zu machen!“",
+                Mood::Offended => "„Hmpf.“",
+            };
+            text(c, content, greeting, DIM, 16.0);
             text(c, content, format!("{} Credits", credits.bank), OKAY, 22.0);
             for (i, item) in ITEMS.iter().enumerate() {
                 let (name, description, list) = item.offer(&ship);
@@ -698,5 +780,19 @@ fn render(
             }
             text(c, content, "W/S wählen · Enter kaufen · V verhandeln · Esc zurück", DIM, 14.0);
         }
+    }
+}
+
+/// Quibbo blinzelt ab und zu.
+fn animate_quibbo(
+    time: Res<Time<Real>>,
+    art: Res<QuibboArt>,
+    mut portrait: Single<&mut ImageNode, With<QuibboPortrait>>,
+    mut clock: Local<f32>,
+) {
+    *clock = (*clock + time.delta_secs()) % BLINK_EVERY;
+    let image = if *clock > BLINK_EVERY - BLINK_TIME { &art.blink } else { &art.open };
+    if portrait.image != *image {
+        portrait.image = image.clone();
     }
 }

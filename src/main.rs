@@ -9,7 +9,9 @@ mod menu;
 mod neon;
 mod particles;
 mod player;
+mod quibbo;
 mod rng;
+mod save;
 mod shipyard;
 mod shots;
 mod superweapon;
@@ -129,6 +131,8 @@ fn main() {
             hud::HudPlugin,
             menu::MenuPlugin,
             shipyard::ShipyardPlugin,
+            save::SavePlugin,
+            quibbo::QuibboPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);
