@@ -378,7 +378,7 @@ fn run_round(
             let task = boss.task.as_ref().unwrap();
             topic.0.record(task, &Outcome::TimedOut);
             stats.count(&Outcome::TimedOut);
-            boss.feedback = (format!("Zeit um: {} = {} · Kern kurz offen!", task.prompt, task.answer), OKAY);
+            boss.feedback = (format!("Zeit um: {} · Kern kurz offen!", task.solution()), OKAY);
             for mut plate in &mut plates {
                 plate.opened = plate.correct;
             }
@@ -451,7 +451,7 @@ fn hit_boss(
             } else {
                 topic.0.record(task, &Outcome::Wrong);
                 stats.count(&Outcome::Wrong);
-                boss.feedback = (format!("Falsch: {} = {}", task.prompt, task.answer), BAD);
+                boss.feedback = (format!("Falsch: {}", task.solution()), BAD);
                 plate.red = 1.0;
                 boss.round = Round::Pause { remaining: WRONG_PAUSE };
                 // Strafe: ein gezielter Feuerstoß aus dem Kern.
@@ -560,7 +560,7 @@ fn update_banner(
             let share = (1.0 - elapsed / limit).clamp(0.0, 1.0);
             let prompt = boss.task.as_ref().map(|t| t.prompt.as_str()).unwrap_or("");
             let bar_color = if share > FAST_SHARE { GOOD } else if share > 0.2 { OKAY } else { BAD };
-            (format!("Triff das Ergebnis: {prompt}"), TEXT, share, bar_color)
+            (format!("Triff die richtige Zahl: {prompt}"), TEXT, share, bar_color)
         }
         Round::Open { remaining, total } => (boss.feedback.0.clone(), boss.feedback.1, remaining / total, GOOD),
         Round::Pause { .. } => (boss.feedback.0.clone(), boss.feedback.1, 0.0, GOOD),

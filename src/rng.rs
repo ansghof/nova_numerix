@@ -15,6 +15,8 @@ impl Default for Rng {
             .unwrap_or(0x9E37_79B9_7F4A_7C15);
         #[cfg(target_arch = "wasm32")]
         let seed = 0x9E37_79B9_7F4A_7C15;
+        // Testläufe können mit NOVA_SEED immer denselben Ablauf erzeugen.
+        let seed = std::env::var("NOVA_SEED").ok().and_then(|s| s.parse().ok()).filter(|_| cfg!(debug_assertions)).unwrap_or(seed);
         Self(seed | 1)
     }
 }

@@ -9,6 +9,7 @@
 //! - `feuer an` / `feuer aus`: Leertaste dauerhaft halten
 //! - `zielen an` / `zielen aus`: das Schiff auf die richtige Bossplatte oder den offenen Kern ausrichten
 //! - `bild NAME`: Screenshot nach `target/test-NAME.png`
+//! - `wellenbild NAME`: Screenshot kurz nach der nächsten ausgelöschten Welle
 //! - `ende`: Spiel beenden
 //!
 //! Das Fenster bekommt dabei keinen Fokus, Tastendrücke werden intern eingespielt.
@@ -22,6 +23,7 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
 use crate::GamePhase;
 use crate::boss::{Boss, BossCore, Plate};
+use crate::enemy::WaveCleared;
 use crate::level::{LEVEL_LENGTH, LevelProgress};
 use crate::player::Player;
 use crate::superweapon::FireSuper;
@@ -44,7 +46,8 @@ impl Plugin for DevToolsPlugin {
             .collect();
         app.insert_resource(TestScript { steps, keys: VecDeque::new(), held: None, fire: false, aim: false })
             .add_systems(PreUpdate, (play_script, aim).chain().after(InputSystems))
-            .add_systems(Update, (log_phase, log_super));
+            .init_resource::<WaveShot>()
+            .add_systems(Update, (log_phase, log_super, log_waves));
     }
 }
 
@@ -114,6 +117,8 @@ fn play_script(
         if let Some(name) = action.strip_prefix("bild ") {
             let path = format!("target/test-{name}.png");
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        } else if let Some(name) = action.strip_prefix("wellenbild ") {
+            commands.insert_resource(WaveShot { name: Some(name.to_string()), countdown: None });
         } else if action == "boss" {
             progress.elapsed = LEVEL_LENGTH;
         } else if let Some(on) = action.strip_prefix("feuer ") {
@@ -166,7 +171,7 @@ fn aim(
 
 fn log_phase(phase: Res<State<GamePhase>>, active: Option<Res<ActiveTask>>) {
     if phase.is_changed() {
-        let task = active.map(|a| format!(" ({} = {})", a.task.prompt, a.task.answer)).unwrap_or_default();
+        let task = active.map(|a| format!(" ({})", a.task.solution())).unwrap_or_default();
         info!("Phase: {:?}{task}", phase.get());
     }
 }
@@ -174,5 +179,35 @@ fn log_phase(phase: Res<State<GamePhase>>, active: Option<Res<ActiveTask>>) {
 fn log_super(mut messages: MessageReader<FireSuper>) {
     for fire in messages.read() {
         info!("Superwaffe: Stufe {}, Kraft {:.2}", fire.tier, fire.power);
+    }
+}
+
+/// Screenshot, der auf die nächste ausgelöschte Welle wartet.
+#[derive(Resource, Default)]
+struct WaveShot {
+    name: Option<String>,
+    countdown: Option<f32>,
+}
+
+fn log_waves(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    mut messages: MessageReader<WaveCleared>,
+    mut shot: ResMut<WaveShot>,
+) {
+    for wave in messages.read() {
+        info!("Welle ausgelöscht: {} Gegner", wave.size);
+        if shot.name.is_some() && shot.countdown.is_none() {
+            shot.countdown = Some(0.25);
+        }
+    }
+    let Some(countdown) = &mut shot.countdown else {
+        return;
+    };
+    *countdown -= time.delta_secs();
+    if *countdown <= 0.0 {
+        let name = shot.name.take().unwrap_or_default();
+        shot.countdown = None;
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(format!("target/test-{name}.png")));
     }
 }

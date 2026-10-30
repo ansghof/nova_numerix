@@ -9,7 +9,7 @@
 use bevy::prelude::*;
 
 use crate::{GamePhase, Gameplay};
-use crate::enemy::FreightDestroyed;
+use crate::enemy::{FreightDestroyed, WaveCleared};
 use crate::hud::Score;
 use crate::level::LevelStats;
 use crate::player::{Loadout, MAX_HEALTH, MAX_LEVEL, Player};
@@ -65,13 +65,25 @@ impl Plugin for TaskPlugin {
 }
 
 pub struct Task {
-    /// Die Aufgabe ohne Ergebnis, etwa „7 × 8“.
+    /// Die Aufgabe mit `?` an der gesuchten Stelle, etwa „7 × 8 = ?“ oder „3 × ? = 15“.
     pub prompt: String,
     pub answer: u32,
     /// Kennung des Rechenfakts, damit schwache Fakten öfter wiederkommen.
     pub fact: usize,
     /// Zeitlimit in echten Sekunden.
     pub time_limit: f32,
+}
+
+impl Task {
+    /// Die Aufgabe mit `fill` an der Stelle der Lücke.
+    pub fn with(&self, fill: &str) -> String {
+        self.prompt.replace('?', fill)
+    }
+
+    /// Die vollständige, richtige Gleichung.
+    pub fn solution(&self) -> String {
+        self.with(&self.answer.to_string())
+    }
 }
 
 pub enum Outcome {
@@ -89,7 +101,8 @@ pub trait TaskGenerator: Send + Sync + 'static {
 }
 
 /// Kleines Einmaleins von 2 × 2 bis 10 × 10. Jedes Fakt hat ein Gewicht: Fehler erhöhen es,
-/// schnelle richtige Antworten senken es.
+/// schnelle richtige Antworten senken es. Ein Teil der Aufgaben fragt nach einer Lücke im
+/// Faktor („3 × ? = 15“). Aufgaben mit 10 sind zu leicht und kommen anfangs selten.
 pub struct SmallTimesTable {
     weights: Vec<f32>,
     last: Option<usize>,
@@ -99,8 +112,23 @@ impl SmallTimesTable {
     const LOW: u32 = 2;
     const SPAN: usize = 9;
 
+    /// Anteil der Lückenaufgaben.
+    const GAP_SHARE: f32 = 0.35;
+    /// Startgewicht der Aufgaben mit 10 im Vergleich zu den anderen.
+    const TEN_WEIGHT: f32 = 0.25;
+
     pub fn new() -> Self {
-        Self { weights: vec![1.0; Self::SPAN * Self::SPAN], last: None }
+        let weights = (0..Self::SPAN * Self::SPAN)
+            .map(|fact| {
+                let (a, b) = Self::factors(fact);
+                if a == 10 || b == 10 { Self::TEN_WEIGHT } else { 1.0 }
+            })
+            .collect();
+        Self { weights, last: None }
+    }
+
+    fn factors(fact: usize) -> (u32, u32) {
+        (Self::LOW + (fact / Self::SPAN) as u32, Self::LOW + (fact % Self::SPAN) as u32)
     }
 
     /// Dieselbe Aufgabe wie zuletzt, auch vertauscht: Nach 10 × 3 soll nicht 3 × 10 kommen.
@@ -128,9 +156,16 @@ impl TaskGenerator for SmallTimesTable {
             pick -= w;
         }
         self.last = Some(fact);
-        let a = Self::LOW + (fact / Self::SPAN) as u32;
-        let b = Self::LOW + (fact % Self::SPAN) as u32;
-        Task { prompt: format!("{a} × {b}"), answer: a * b, fact, time_limit: 6.0 }
+        let (a, b) = Self::factors(fact);
+        let product = a * b;
+        if rng.chance(Self::GAP_SHARE) {
+            // Lücken brauchen einen Gedanken mehr, also eine Sekunde mehr Zeit.
+            let (prompt, answer) =
+                if rng.chance(0.5) { (format!("{a} × ? = {product}"), b) } else { (format!("? × {b} = {product}"), a) };
+            Task { prompt, answer, fact, time_limit: 7.0 }
+        } else {
+            Task { prompt: format!("{a} × {b} = ?"), answer: product, fact, time_limit: 6.0 }
+        }
     }
 
     fn record(&mut self, task: &Task, outcome: &Outcome) {
@@ -155,6 +190,8 @@ pub struct PendingTasks {
     freight: u32,
     /// Der Spieler will die Superwaffe zünden.
     pub super_weapon: bool,
+    /// Größen ausgelöschter Wellen, deren Bonusaufgabe noch aussteht.
+    waves: Vec<u32>,
 }
 
 impl PendingTasks {
@@ -169,6 +206,17 @@ enum Purpose {
     Freight(Reward),
     /// Bei einem Fehler gibt es eine zweite Aufgabe; die Zeit läuft dabei weiter.
     Super { second_chance_used: bool },
+    /// Eine Welle wurde ganz abgeschossen; richtig gerechnet gibt es Sonderpunkte.
+    WaveBonus { size: u32 },
+}
+
+/// Sonderpunkte je Gegner der Welle; Tempo verdreifacht sie höchstens.
+const WAVE_POINTS_PER_ENEMY: f32 = 60.0;
+/// Mehr Bonusaufgaben werden nicht aufgehoben, wenn gerade viel los ist.
+const MAX_PENDING_WAVES: usize = 2;
+
+fn wave_points(size: u32, share: f32) -> u32 {
+    (size as f32 * WAVE_POINTS_PER_ENEMY * (1.0 + 2.0 * share)).round() as u32
 }
 
 #[derive(Clone, Copy)]
@@ -243,8 +291,17 @@ fn font(size: f32) -> TextFont {
     }
 }
 
-fn count_freight(mut messages: MessageReader<FreightDestroyed>, mut pending: ResMut<PendingTasks>) {
-    pending.freight += messages.read().count() as u32;
+fn count_freight(
+    mut freight: MessageReader<FreightDestroyed>,
+    mut cleared: MessageReader<WaveCleared>,
+    mut pending: ResMut<PendingTasks>,
+) {
+    pending.freight += freight.read().count() as u32;
+    for wave in cleared.read() {
+        if pending.waves.len() < MAX_PENDING_WAVES {
+            pending.waves.push(wave.size);
+        }
+    }
 }
 
 fn start_task(
@@ -262,6 +319,8 @@ fn start_task(
     } else if pending.freight > 0 {
         pending.freight -= 1;
         (Purpose::Freight(Reward::choose(&mut rng, &loadout, player.health)), 0.0)
+    } else if !pending.waves.is_empty() {
+        (Purpose::WaveBonus { size: pending.waves.remove(0) }, 0.0)
     } else {
         return;
     };
@@ -304,6 +363,7 @@ fn spawn_popup(mut commands: Commands, active: Res<ActiveTask>) {
     let title = match &active.purpose {
         Purpose::Freight(reward) => format!("Fracht gesichert · Belohnung: {}", reward.name()),
         Purpose::Super { .. } => "Superwaffe laden · je schneller, desto stärker".to_string(),
+        Purpose::WaveBonus { size } => format!("Welle ausgelöscht! Bonus bis +{}", wave_points(*size, 1.0)),
     };
     commands.spawn((
         Text::new(title),
@@ -313,7 +373,7 @@ fn spawn_popup(mut commands: Commands, active: Res<ActiveTask>) {
     ));
     commands.spawn((
         PromptText,
-        Text::new(format!("{} = _", active.task.prompt)),
+        Text::new(active.task.with("_")),
         TextColor(TEXT),
         font(56.0),
         ChildOf(panel),
@@ -388,7 +448,7 @@ fn type_answer(
     let share = active.remaining_share();
     bar.0.width = Val::Percent(share * 100.0);
     bar.1.0 = if share > FAST_SHARE { GOOD } else if share > 0.2 { OKAY } else { BAD };
-    prompt.0.0 = format!("{} = {}_", active.task.prompt, active.input);
+    prompt.0.0 = active.task.with(&format!("{}_", active.input));
 
     let submitted = (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && !active.input.is_empty();
     let outcome = if submitted {
@@ -405,7 +465,7 @@ fn type_answer(
 
     // Einzelne Felder getrennt ausleihen können.
     let active = &mut *active;
-    let solution = format!("{} = {}", active.task.prompt, active.task.answer);
+    let solution = active.task.solution();
     topic.0.record(&active.task, &outcome);
     stats.count(&outcome);
     let (color, feedback) = match (&mut active.purpose, outcome) {
@@ -422,6 +482,19 @@ fn type_answer(
         }
         (Purpose::Freight(_), Outcome::Wrong) => {
             // Ein Fehler kostet etwas Schild, aber nie das Schiff.
+            player.health = (player.health - WRONG_DAMAGE).max(1.0);
+            (BAD, format!("Knapp daneben – richtig ist {}", active.task.answer))
+        }
+        (Purpose::WaveBonus { size }, Outcome::Correct { remaining_share }) => {
+            let points = wave_points(*size, remaining_share);
+            score.0 += points;
+            let praise = if remaining_share >= FAST_SHARE { "Blitzschnell!" } else { "Sauber gerechnet!" };
+            (GOOD, format!("{praise} Sonderpunkte +{points}"))
+        }
+        (Purpose::WaveBonus { .. }, Outcome::TimedOut) => {
+            (OKAY, "Zeit um – diesmal kein Bonus. Nächstes Mal schneller!".to_string())
+        }
+        (Purpose::WaveBonus { .. }, Outcome::Wrong) => {
             player.health = (player.health - WRONG_DAMAGE).max(1.0);
             (BAD, format!("Knapp daneben – richtig ist {}", active.task.answer))
         }
@@ -501,5 +574,41 @@ fn world_speed(
     };
     if speed != time.relative_speed() {
         time.set_relative_speed(speed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Setzt die Lösung ein und prüft, ob die Gleichung stimmt.
+    fn holds(task: &Task) -> bool {
+        let solution = task.solution();
+        let (left, right) = solution.split_once(" = ").unwrap();
+        let (a, b) = left.split_once(" × ").unwrap();
+        a.parse::<u32>().unwrap() * b.parse::<u32>().unwrap() == right.parse::<u32>().unwrap()
+    }
+
+    #[test]
+    fn einmaleins_mit_luecken_und_seltener_zehn() {
+        let mut rng = Rng::default();
+        let mut table = SmallTimesTable::new();
+        let (mut gaps, mut tens) = (0, 0);
+        let n = 4000;
+        for _ in 0..n {
+            let task = table.next(&mut rng);
+            assert!(holds(&task), "{} mit {}", task.prompt, task.answer);
+            if !task.prompt.ends_with('?') {
+                gaps += 1;
+            }
+            if task.solution().split([' ', '×', '=']).any(|part| part == "10") {
+                tens += 1;
+            }
+        }
+        let gap_share = gaps as f32 / n as f32;
+        assert!((0.3..0.4).contains(&gap_share), "Lückenanteil {gap_share}");
+        // Ohne Bremse wären 17 von 81 Fakten mit 10 dabei, also etwa 21 %.
+        let ten_share = tens as f32 / n as f32;
+        assert!(ten_share < 0.1, "Anteil mit 10: {ten_share}");
     }
 }

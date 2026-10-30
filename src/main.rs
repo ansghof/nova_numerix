@@ -18,6 +18,7 @@ use bevy::camera::{Hdr, ScalingMode};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
 
 /// Halbe Breite und Höhe des Spielfelds in Welt-Einheiten. Die Kamera zeigt immer mindestens
 /// dieses Feld, egal wie groß das Fenster ist.
@@ -57,6 +58,8 @@ fn main() {
                 title: "Nova Numerix".into(),
                 resolution: (1280, 720).into(),
                 focused: !test_run,
+                // Gespielt wird im Vollbild; F11 wechselt ins Fenster und zurück.
+                mode: if test_run { WindowMode::Windowed } else { WindowMode::BorderlessFullscreen(MonitorSelection::Primary) },
                 // Testläufe öffnen ihr Fenster außerhalb des Bildschirms, damit es niemanden stört.
                 position: if test_run {
                     WindowPosition::At(IVec2::new(-20000, -20000))
@@ -75,7 +78,7 @@ fn main() {
         .init_resource::<rng::Rng>()
         .init_resource::<Shake>()
         .add_systems(Startup, spawn_camera)
-        .add_systems(Update, shake_camera)
+        .add_systems(Update, (shake_camera, toggle_fullscreen))
         .add_plugins((
             neon::NeonPlugin,
             particles::ParticlesPlugin,
@@ -107,6 +110,16 @@ fn shake_camera(
 ) {
     shake.0 = (shake.0 - time.delta_secs() * 30.0).max(0.0);
     camera.translation = (rng.direction() * shake.0).extend(camera.translation.z);
+}
+
+fn toggle_fullscreen(keys: Res<ButtonInput<KeyCode>>, mut window: Single<&mut Window, With<PrimaryWindow>>) {
+    if !keys.just_pressed(KeyCode::F11) {
+        return;
+    }
+    window.mode = match window.mode {
+        WindowMode::Windowed => WindowMode::BorderlessFullscreen(MonitorSelection::Current),
+        _ => WindowMode::Windowed,
+    };
 }
 
 fn spawn_camera(mut commands: Commands) {

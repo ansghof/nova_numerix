@@ -7,7 +7,7 @@ use crate::Gameplay;
 use crate::task::{FAST_SHARE, Outcome};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
-pub const LEVEL_LENGTH: f32 = 240.0;
+pub const LEVEL_LENGTH: f32 = 120.0;
 /// Hier liegt der Checkpoint, als Anteil der Levellänge.
 pub const CHECKPOINT_SHARE: f32 = 0.6;
 

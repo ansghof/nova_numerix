@@ -13,8 +13,8 @@ Hauptmenü → Speicherslot (1–5) → Sternenkarte (Levelauswahl)
    → Bosskampf → Auswertung (Punkte, Sterne, Statistik) → Sternenkarte
 ```
 
-Ein Level dauert etwa 4–6 Minuten: Anflug, 3–4 Abschnitte mit Gegnerwellen, ein
-Zwischenereignis, Checkpoint, Boss. Ein Fortschrittsbalken oben in der Mitte zeigt, wie weit
+Ein Level dauert etwa 2–3 Minuten (2 Minuten Flug plus Boss): dichte, abwechslungsreiche
+Gegnerwellen (Schlange, V-Formation, Zange, Sturzflug, Kreisel), Checkpoint, Boss. Ein Fortschrittsbalken oben in der Mitte zeigt, wie weit
 es noch bis zum Boss ist, mit einer Markierung für den Checkpoint. Er läuft in Spielzeit,
 steht während einer Aufgabe also fast still.
 
@@ -44,6 +44,17 @@ Grundregel: **falsch < Zeit abgelaufen < richtig < richtig und schnell**.
 - Jedes Rechenfakt (z. B. 7×8) hat einen Lernwert; schwache Fakten kommen öfter wieder.
 - Zeitlimits passen sich an (schnelle Spieler bekommen etwas weniger Zeit).
 - Startwerte: kleines 1×1 6 s, großes 1×1 10 s.
+- Etwa jede dritte Aufgabe ist eine **Lückenaufgabe** („3 × _ = 15“, Antwort 5), mit einer
+  Sekunde mehr Zeit. Das gilt auch für die Zahlenplatten des Bosses.
+- Zu leichte Fakten (z. B. ×10 im kleinen 1×1) kommen anfangs nur mit einem Viertel der
+  normalen Häufigkeit.
+
+### Ausgelöschte Wellen
+Wird eine Gegnerwelle vollständig abgeschossen, ohne dass einer entkommt, gibt es eine
+goldene Doppel-Druckwelle, den Schriftzug „Welle ausgelöscht!“ und eine Bonusaufgabe:
+richtig = Sonderpunkte (60 je Gegner, mit Tempo bis zum Dreifachen), Zeit um = kein Bonus,
+falsch = kein Bonus und leichter Schildschaden. Frachtdrohnen und Superwaffe haben Vorrang;
+es werden höchstens zwei Bonusaufgaben aufgehoben.
 
 ### Bullet-Time
 Während einer Aufgabe läuft die Welt mit 10 % weiter. Das Schiff liegt in einer
