@@ -100,8 +100,30 @@ gibt Bonus-Credits.
 
 ## Werft und Shop
 
-**Rechentraining:** 60-Sekunden-Runde, Kombo-Multiplikator, Thema frei wählbar, keine
-Obergrenze. Credits pro Aufgabe etwas niedriger als im Level.
+**Rechentraining:** Thema frei wählbar, Kombo-Multiplikator für Serien richtiger Antworten.
+Mit etwa **20–30 gelösten Aufgaben** soll man sich im Shop vernünftig versorgen können.
+Weiterrechnen ist immer möglich, lohnt sich aber pro Werft-Besuch immer weniger, damit man
+nach dem ersten Level nicht sofort übermächtig ist:
+
+| Aufgabe im Besuch | Credits pro richtiger Antwort |
+|---|---|
+| 1–25 | 100 % (Grundwert ~40 Credits, plus Tempo-Bonus) |
+| 26–40 | 50 % |
+| 41–60 | 25 % |
+| ab 61 | 10 % (Üben bleibt möglich, bringt aber kaum noch etwas) |
+
+Nach jedem geflogenen Level (auch einem verlorenen) beginnt die Staffel wieder von vorn.
+Die Anzeige zeigt offen, wie viele „volle“ Aufgaben noch übrig sind, damit sich niemand
+betrogen fühlt.
+
+**Knappes Budget:** Nach einem Level plus vollem Training reicht es für **ein bis zwei
+Dinge**. Wer beschädigt zurückkommt, muss erst reparieren und hat dann kaum noch etwas übrig.
+Jeder Kauf soll eine echte Entscheidung sein.
+
+**Richtwerte für die Preise** (Level-Credits + voller Trainingsbesuch ≈ 700–900 Credits):
+Reparatur 10 Credits je Schildpunkt (eine halbe Reparatur ≈ 500), neue Waffe 600,
+Waffenstufe 400 × Stufe, Panzerung 700, Zeitlupen-Chip 200, Superwaffen-Ladung 350,
+neuer Rumpf 3000–8000 (also über viele Besuche sparen).
 
 **Shop:** Reparatur, Waffen, Panzerung, Feuerrate, zusätzliche Superwaffen-Ladung (max. +2),
 Zeitlupen-Chips (+50 % Zeit für X Aufgaben), Rümpfe, Lackierungen.

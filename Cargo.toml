@@ -1,0 +1,32 @@
+[package]
+name = "nova_numerix"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[dependencies]
+# system_font_discovery: Die eingebaute Schrift hat keine Umlaute, also Systemschriften nutzen.
+# Für den Web-Build muss später eine Schrift mitgeliefert werden.
+bevy = { version = "0.20", features = ["system_font_discovery"] }
+
+# Bevy-Systeme haben naturgemäß viele Parameter und lange Query-Typen.
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+[features]
+# Schnellere Kompilierzeiten beim Entwickeln: `cargo run --features dev`
+dev = ["bevy/dynamic_linking"]
+
+# Eigener Code leicht optimiert, Abhängigkeiten voll optimiert:
+# so bleibt das Spiel im Debug-Build flüssig, ohne dass jede Änderung lange baut.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

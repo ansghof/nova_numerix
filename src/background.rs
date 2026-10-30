@@ -1,0 +1,75 @@
+//! Hintergrund in drei Parallax-Ebenen: ferne Sterne, nahe Sterne und ein Gitter am Rand des
+//! Spielfelds, das am schnellsten vorbeizieht.
+
+use bevy::prelude::*;
+
+use crate::rng::Rng;
+use crate::{HALF_HEIGHT, HALF_WIDTH};
+
+/// Geschwindigkeit der drei Ebenen in Welt-Einheiten pro Sekunde.
+const LAYER_SPEED: [f32; 3] = [18.0, 55.0, 140.0];
+const STARS_PER_LAYER: usize = 70;
+const GRID_SPACING: f32 = 80.0;
+/// Etwas breiter als das Spielfeld, damit bei breiten Fenstern nichts plötzlich auftaucht.
+const SPAN: f32 = HALF_WIDTH * 1.6;
+
+pub struct BackgroundPlugin;
+
+impl Plugin for BackgroundPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, spawn_stars).add_systems(Update, (scroll, draw).chain());
+    }
+}
+
+struct Star {
+    pos: Vec2,
+    layer: usize,
+}
+
+#[derive(Resource)]
+struct Starfield {
+    stars: Vec<Star>,
+    grid_offset: f32,
+}
+
+fn spawn_stars(mut commands: Commands, mut rng: ResMut<Rng>) {
+    let stars = (0..3)
+        .flat_map(|layer| (0..STARS_PER_LAYER).map(move |_| layer))
+        .map(|layer| Star {
+            pos: Vec2::new(rng.range(-SPAN, SPAN), rng.range(-HALF_HEIGHT, HALF_HEIGHT)),
+            layer,
+        })
+        .collect();
+    commands.insert_resource(Starfield { stars, grid_offset: 0.0 });
+}
+
+fn scroll(time: Res<Time>, mut field: ResMut<Starfield>) {
+    let dt = time.delta_secs();
+    for star in &mut field.stars {
+        star.pos.x -= LAYER_SPEED[star.layer] * dt;
+        if star.pos.x < -SPAN {
+            star.pos.x += SPAN * 2.0;
+        }
+    }
+    field.grid_offset = (field.grid_offset + LAYER_SPEED[2] * dt) % GRID_SPACING;
+}
+
+fn draw(mut gizmos: Gizmos, field: Res<Starfield>) {
+    for star in &field.stars {
+        let brightness = [0.25, 0.55, 1.1][star.layer];
+        let length = [1.5, 3.0, 7.0][star.layer];
+        let color = LinearRgba::rgb(0.7 * brightness, 0.8 * brightness, 1.2 * brightness);
+        gizmos.line_2d(star.pos, star.pos + Vec2::X * length, color);
+    }
+
+    // Leuchtendes Gitter als Boden und Decke, perspektivisch nach außen auseinanderlaufend.
+    let grid = LinearRgba::rgb(0.35, 0.08, 0.6);
+    for (edge, inner) in [(-HALF_HEIGHT, -HALF_HEIGHT + 40.0), (HALF_HEIGHT, HALF_HEIGHT - 40.0)] {
+        gizmos.line_2d(Vec2::new(-SPAN, inner), Vec2::new(SPAN, inner), grid);
+        let mut x = -SPAN - field.grid_offset;
+        while x < SPAN {
+            gizmos.line_2d(Vec2::new(x, inner), Vec2::new(x * 1.25, edge), grid);
+            x += GRID_SPACING;
+        }
+    }
+}
