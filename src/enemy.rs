@@ -421,8 +421,8 @@ fn wave_cleared_effect(commands: &mut Commands, particles: &mut Particles, rng: 
     particles.sparks(rng, at, GOLD, 60, 520.0);
     particles.sparks(rng, at, WHITE, 20, 300.0);
     shake.0 = shake.0.max(5.0);
-    // Nicht zu nah an den Rand, damit der Schriftzug lesbar bleibt.
-    let pos = at.clamp(Vec2::new(-HALF_WIDTH + 160.0, -HALF_HEIGHT + 80.0), Vec2::new(HALF_WIDTH - 160.0, HALF_HEIGHT - 120.0));
+    // Über der Druckwelle und nicht zu nah am Rand, damit der Schriftzug lesbar bleibt.
+    let pos = (at + Vec2::Y * 80.0).clamp(Vec2::new(-HALF_WIDTH + 160.0, -HALF_HEIGHT + 80.0), Vec2::new(HALF_WIDTH - 160.0, HALF_HEIGHT - 120.0));
     commands.spawn((
         RisingBanner(0.0),
         Text2d::new("Welle ausgelöscht!"),
