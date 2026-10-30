@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 
+use crate::Gameplay;
 use crate::task::{FAST_SHARE, Outcome};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
@@ -14,7 +15,7 @@ pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LevelProgress>().init_resource::<LevelStats>().add_systems(Update, advance);
+        app.init_resource::<LevelProgress>().init_resource::<LevelStats>().add_systems(Update, advance.in_set(Gameplay));
     }
 }
 

@@ -8,7 +8,7 @@ use crate::neon::{CYAN, Shape, WHITE, scaled};
 use crate::particles::Particles;
 use crate::rng::Rng;
 use crate::shots;
-use crate::{GamePhase, HALF_HEIGHT, HALF_WIDTH, Shake};
+use crate::{GamePhase, Gameplay, HALF_HEIGHT, HALF_WIDTH, Shake};
 
 pub const MAX_HEALTH: f32 = 100.0;
 pub const MAX_LEVEL: u8 = 5;
@@ -39,7 +39,8 @@ impl Plugin for PlayerPlugin {
                     show_weapons,
                     draw_bubble,
                     check_death,
-                ),
+                )
+                    .in_set(Gameplay),
             );
     }
 }

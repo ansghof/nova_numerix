@@ -5,6 +5,7 @@ mod devtools;
 mod enemy;
 mod hud;
 mod level;
+mod menu;
 mod neon;
 mod particles;
 mod player;
@@ -22,6 +23,19 @@ use bevy::prelude::*;
 /// dieses Feld, egal wie groß das Fenster ist.
 pub const HALF_WIDTH: f32 = 640.0;
 pub const HALF_HEIGHT: f32 = 360.0;
+
+/// Wo im Spiel man sich befindet. Die Spielwelt läuft nur beim Fliegen.
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AppState {
+    #[default]
+    Splash,
+    Menu,
+    Playing,
+}
+
+/// Alle Systeme der Spielwelt; sie ruhen in Splash und Menü.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Gameplay;
 
 /// Was im Level gerade passiert. Während einer Aufgabe läuft die Welt in Zeitlupe weiter,
 /// danach beschleunigt sie in der Rückkehr-Phase wieder auf volles Tempo.
@@ -54,7 +68,10 @@ fn main() {
             ..default()
         }))
         .insert_resource(ClearColor(Color::srgb(0.005, 0.005, 0.02)))
+        // Testläufe starten direkt im Flug, außer NOVA_START verlangt den Splash.
+        .insert_state(if test_run && std::env::var("NOVA_START").is_err() { AppState::Playing } else { AppState::Splash })
         .init_state::<GamePhase>()
+        .configure_sets(Update, Gameplay.run_if(in_state(AppState::Playing)))
         .init_resource::<rng::Rng>()
         .init_resource::<Shake>()
         .add_systems(Startup, spawn_camera)
@@ -71,6 +88,7 @@ fn main() {
             level::LevelPlugin,
             boss::BossPlugin,
             hud::HudPlugin,
+            menu::MenuPlugin,
         ));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);

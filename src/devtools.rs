@@ -3,7 +3,7 @@
 //! `NOVA_TEST="2 q; 3 1; 3.1 enter; 3.3 bild falsch; 6 ende"`.
 //!
 //! Aktionen:
-//! - eine Taste: `q`, `enter`, `rück`, `leer`, `0`–`9`
+//! - eine Taste: `q`, `enter`, `rück`, `leer`, `esc`, `hoch`, `runter`, `0`–`9`
 //! - `antwort`: die richtige Lösung der offenen Aufgabe eintippen und abgeben
 //! - `boss`: direkt ans Levelende springen
 //! - `feuer an` / `feuer aus`: Leertaste dauerhaft halten
@@ -64,6 +64,9 @@ fn key(name: &str) -> Option<KeyCode> {
         "enter" => KeyCode::Enter,
         "rück" => KeyCode::Backspace,
         "leer" => KeyCode::Space,
+        "esc" => KeyCode::Escape,
+        "hoch" => KeyCode::ArrowUp,
+        "runter" => KeyCode::ArrowDown,
         _ => digit(name.parse().ok()?)?,
     })
 }

@@ -19,7 +19,7 @@ use crate::shots::{Friendly, Shot, Targetable, spawn_enemy_shot};
 use crate::superweapon::{CHARGES_PER_LEVEL, SuperWeapon};
 use crate::enemy::Enemy;
 use crate::task::{BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, Task, Topic};
-use crate::{HALF_WIDTH, Shake};
+use crate::{Gameplay, HALF_WIDTH, Shake};
 
 const NAME: &str = "Der Wächter";
 pub const BOSS_HEALTH: f32 = 150.0;
@@ -60,7 +60,7 @@ impl Plugin for BossPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BossState>().add_systems(
             Update,
-            (spawn_boss, move_boss, run_round, hit_boss, attack, animate, update_banner, dying, restart).chain(),
+            (spawn_boss, move_boss, run_round, hit_boss, attack, animate, update_banner, dying, restart).chain().in_set(Gameplay),
         );
     }
 }

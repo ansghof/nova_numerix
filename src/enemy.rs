@@ -10,7 +10,7 @@ use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Player};
 use crate::rng::Rng;
 use crate::level::LevelProgress;
 use crate::shots::{Targetable, spawn_enemy_shot};
-use crate::{GamePhase, HALF_WIDTH};
+use crate::{GamePhase, Gameplay, HALF_WIDTH};
 
 const SPAWN_X: f32 = HALF_WIDTH + 60.0;
 const RAM_DAMAGE: f32 = 25.0;
@@ -26,7 +26,7 @@ impl Plugin for EnemyPlugin {
             .insert_resource(Spawner { wave: 2.0, freighter: FIRST_FREIGHTER })
             .add_systems(
                 Update,
-                (spawn_waves, fly, shoot, ram_player, flash, destroy).chain(),
+                (spawn_waves, fly, shoot, ram_player, flash, destroy).chain().in_set(Gameplay),
             );
     }
 }

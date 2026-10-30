@@ -8,7 +8,7 @@
 
 use bevy::prelude::*;
 
-use crate::GamePhase;
+use crate::{GamePhase, Gameplay};
 use crate::enemy::FreightDestroyed;
 use crate::hud::Score;
 use crate::level::LevelStats;
@@ -58,7 +58,8 @@ impl Plugin for TaskPlugin {
                     finish_return.run_if(in_state(GamePhase::Return)),
                     world_speed,
                 )
-                    .chain(),
+                    .chain()
+                    .in_set(Gameplay),
             );
     }
 }

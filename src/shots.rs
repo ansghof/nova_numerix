@@ -7,7 +7,7 @@ use crate::neon::{CYAN, ORANGE, Shape, WHITE, polygon};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Player};
 use crate::rng::Rng;
-use crate::{GamePhase, HALF_HEIGHT, HALF_WIDTH};
+use crate::{GamePhase, Gameplay, HALF_HEIGHT, HALF_WIDTH};
 
 const LASER_SPEED: f32 = 1100.0;
 const MISSILE_SPEED: f32 = 520.0;
@@ -19,7 +19,7 @@ pub struct ShotsPlugin;
 
 impl Plugin for ShotsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (steer_missiles, fly, hit_enemies, hit_player).chain());
+        app.add_systems(Update, (steer_missiles, fly, hit_enemies, hit_player).chain().in_set(Gameplay));
     }
 }
 

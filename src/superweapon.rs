@@ -13,7 +13,7 @@ use crate::player::Player;
 use crate::rng::Rng;
 use crate::shots::Hostile;
 use crate::task::PendingTasks;
-use crate::{GamePhase, HALF_HEIGHT, HALF_WIDTH};
+use crate::{GamePhase, Gameplay, HALF_HEIGHT, HALF_WIDTH};
 
 pub const CHARGES_PER_LEVEL: u8 = 3;
 /// Schaden einer Fehlzündung oder einer zu langsamen Antwort.
@@ -32,7 +32,7 @@ impl Plugin for SuperWeaponPlugin {
             .add_systems(Startup, spawn_flash)
             .add_systems(
                 Update,
-                (trigger.run_if(in_state(GamePhase::Flying)), launch, expand, draw, fade_flash).chain(),
+                (trigger.run_if(in_state(GamePhase::Flying)), launch, expand, draw, fade_flash).chain().in_set(Gameplay),
             );
     }
 }
