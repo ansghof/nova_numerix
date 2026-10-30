@@ -6,6 +6,8 @@
 //! - eine Taste: `q`, `enter`, `rück`, `leer`, `esc`, `hoch`, `runter`, `0`–`9`
 //! - `antwort`: die richtige Lösung der offenen Aufgabe eintippen und abgeben
 //! - `boss`: direkt ans Levelende springen
+//! - `fortschritt P`: auf P Prozent des Levels springen
+//! - `treffer N`: das Schiff nimmt N Schaden (ohne Panzerung)
 //! - `sieg`: den Boss sofort besiegen
 //! - `geld N`: N Credits aufs Konto
 //! - `tippe TEXT`: Text eintippen, etwa den Schiffsnamen
@@ -129,7 +131,7 @@ fn play_script(
     mut typed: MessageWriter<bevy::input::keyboard::KeyboardInput>,
     mut pointer: MessageWriter<PointerInput>,
     mut started: MessageWriter<LevelStarted>,
-    (mut loadout, mut campaign, mut ship): (ResMut<Loadout>, ResMut<Campaign>, ResMut<Ship>),
+    (mut loadout, mut campaign, mut ship, mut player): (ResMut<Loadout>, ResMut<Campaign>, ResMut<Ship>, Single<&mut Player>),
     window: Single<(Entity, &Window), With<PrimaryWindow>>,
 ) {
     let (window, size) = (window.0, window.1.size());
@@ -204,6 +206,10 @@ fn play_script(
             }
         } else if let Some(amount) = action.strip_prefix("geld ").and_then(|a| a.parse::<u32>().ok()) {
             credits.bank += amount;
+        } else if let Some(p) = action.strip_prefix("fortschritt ").and_then(|p| p.parse::<f32>().ok()) {
+            progress.elapsed = LEVEL_LENGTH * p / 100.0;
+        } else if let Some(n) = action.strip_prefix("treffer ").and_then(|n| n.parse::<f32>().ok()) {
+            player.health -= n;
         } else if action == "boss" {
             progress.elapsed = LEVEL_LENGTH;
         } else if let Some(on) = action.strip_prefix("feuer ") {

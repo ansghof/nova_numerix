@@ -89,8 +89,13 @@ pub fn spawn_enemy_shot(commands: &mut Commands, pos: Vec2, vel: Vec2) {
     ));
 }
 
-fn clear_on_start(mut commands: Commands, mut started: MessageReader<crate::level::LevelStarted>, shots: Query<Entity, With<Shot>>) {
-    if started.read().last().is_some() {
+fn clear_on_start(
+    mut commands: Commands,
+    mut started: MessageReader<crate::level::LevelStarted>,
+    mut rewind: MessageReader<crate::level::Rewind>,
+    shots: Query<Entity, With<Shot>>,
+) {
+    if started.read().count() + rewind.read().count() > 0 {
         for shot in &shots {
             commands.entity(shot).despawn();
         }

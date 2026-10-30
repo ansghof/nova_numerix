@@ -68,12 +68,26 @@ impl Plugin for ShipyardPlugin {
     }
 }
 
-/// Credits auf dem Konto und die im laufenden Flug gesammelten. Die aus dem Flug kommen erst
-/// nach einem Sieg aufs Konto und gehen verloren, wenn das Schiff zerstört wird.
+/// Credits auf dem Konto und die im laufenden Flug gesammelten. Die aus dem Flug kommen an
+/// einem Checkpoint oder nach dem Sieg aufs Konto und gehen verloren, wenn das Schiff vorher
+/// zerstört wird.
 #[derive(Resource, Default)]
 pub struct Credits {
     pub bank: u32,
     pub flight: u32,
+    /// Im laufenden Level an Checkpoints schon aufs Konto gebucht, für die Abrechnung am Ende.
+    pub secured: u32,
+}
+
+impl Credits {
+    /// Am Checkpoint: die Flug-Credits aufs Konto. Gibt zurück, wie viele es waren.
+    pub fn secure(&mut self) -> u32 {
+        let amount = self.flight;
+        self.bank += amount;
+        self.secured += amount;
+        self.flight = 0;
+        amount
+    }
 }
 
 /// Wie viele Trainingsaufgaben seit dem letzten Flug richtig gelöst wurden.
@@ -468,6 +482,7 @@ fn new_visit_after_flight(mut started: MessageReader<LevelStarted>, mut training
     if started.read().last().is_some() {
         training.solved = 0;
         credits.flight = 0;
+        credits.secured = 0;
     }
 }
 

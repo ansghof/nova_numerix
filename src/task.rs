@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use crate::{GamePhase, Gameplay};
 use crate::enemy::{FreightDestroyed, WaveCleared};
 use crate::hud::Score;
-use crate::level::{LevelStarted, LevelStats};
+use crate::level::{LevelStarted, LevelStats, Rewind};
 use crate::shipyard::Credits;
 use crate::neon::{CYAN, GREEN, MAGENTA, Shape, VIOLET, WHITE, polygon};
 use crate::player::{Loadout, MAX_DRONES, MAX_LEVEL, MAX_SIDE, Player};
@@ -597,14 +597,16 @@ fn font(size: f32) -> TextFont {
     }
 }
 
-/// Neues Level: offene Aufgaben verfallen, ein noch offenes Fenster verschwindet.
+/// Neues Level oder Neustart am Checkpoint: offene Aufgaben verfallen, ein noch offenes Fenster
+/// verschwindet.
 fn reset_on_start(
     mut commands: Commands,
     mut started: MessageReader<LevelStarted>,
+    mut rewind: MessageReader<Rewind>,
     mut pending: ResMut<PendingTasks>,
     popups: Query<Entity, With<Popup>>,
 ) {
-    if started.read().last().is_none() {
+    if started.read().count() + rewind.read().count() == 0 {
         return;
     }
     pending.clear();

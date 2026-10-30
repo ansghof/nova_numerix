@@ -14,7 +14,7 @@ use crate::neon::{GOLD, GREEN, LIME, MAGENTA, ORANGE, PINK, RED, Shape, VIOLET, 
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Loadout, Player};
 use crate::rng::Rng;
-use crate::level::{Campaign, CurrentLevel, LevelProgress, LevelStarted};
+use crate::level::{Campaign, CurrentLevel, LevelProgress, LevelStarted, Rewind};
 use crate::ship::Ship;
 use crate::task::Reward;
 use crate::shipyard::Credits;
@@ -420,15 +420,17 @@ fn follow_cargo(
     }
 }
 
-/// Neues Level: Was noch fliegt, verschwindet, und Wellen wie Frachtdrohnen beginnen von vorn.
+/// Neues Level oder Neustart am Checkpoint: Was noch fliegt, verschwindet, und Wellen wie
+/// Frachtdrohnen beginnen von vorn.
 fn clear_on_start(
     mut commands: Commands,
     mut started: MessageReader<LevelStarted>,
+    mut rewind: MessageReader<Rewind>,
     mut waves: ResMut<Waves>,
     mut spawner: ResMut<Spawner>,
     enemies: Query<Entity, With<Enemy>>,
 ) {
-    if started.read().last().is_none() {
+    if started.read().count() + rewind.read().count() == 0 {
         return;
     }
     for enemy in &enemies {

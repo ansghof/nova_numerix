@@ -237,7 +237,7 @@ impl GameState<'_, '_> {
 
     fn apply(&mut self, data: SaveData) {
         self.name.0 = data.ship_name;
-        *self.credits = Credits { bank: data.credits, flight: 0 };
+        *self.credits = Credits { bank: data.credits, flight: 0, secured: 0 };
         *self.loadout = Loadout { laser: data.laser, missiles: data.missiles, side: data.side, drones: data.drones };
         *self.ship = Ship { hull: Hull::from_index(data.hull), armor: data.armor.min(crate::ship::MAX_ARMOR) };
         // Die Schildgrenze passt sich gleich an den Rumpf an; bis dahin nicht kappen.

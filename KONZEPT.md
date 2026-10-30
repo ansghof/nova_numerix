@@ -136,7 +136,12 @@ Kranz um den Rumpf, ein Ring je Stufe. Rumpf und Panzerung bleiben beim Verlust 
 | Drohnen, Level-Powerups | gekaufte Grundwerte (Panzerung, Feuerrate, Schild) |
 | im laufenden Level gesammelte Credits | freigeschaltete Level, Sterne, Lernstatistik |
 
-Checkpoints im Level (z. B. vor dem Boss). Eine „Serie“-Anzeige zählt Level ohne Tod und
+Checkpoints im Level (umgesetzt): einer bei 60 % (Markierung im Fortschrittsbalken, wird grün)
+und einer direkt vor dem Boss. Erreicht man einen, wandern die bis dahin gesammelten
+Flug-Credits aufs Konto und sind sicher. Geht das Schiff verloren, startet ein neues am letzten
+Checkpoint: Das Feld wird geräumt, ein Boss kommt mit voller Kraft neu herein. Verloren sind
+die Waffen und die seit dem Checkpoint gesammelten Credits; Superwaffen-Ladungen, Punkte und
+Aufgabenbilanz bleiben. Eine Meldung am unteren Rand sagt jeweils, was passiert ist. Eine „Serie“-Anzeige zählt Level ohne Tod und
 gibt Bonus-Credits.
 
 ## Werft und Shop

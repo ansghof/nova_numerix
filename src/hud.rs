@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 
-use crate::level::{CHECKPOINT_SHARE, LevelProgress};
+use crate::level::{CHECKPOINT_SHARE, CheckpointReached, LEVEL_LENGTH, LevelProgress, Rewind};
 use crate::player::{Loadout, Player};
 use crate::ship::Ship;
 use crate::save::ShipName;
@@ -16,6 +16,10 @@ const SHIELD_LOW: Color = Color::srgb(1.0, 0.4, 0.4);
 const CHARGE: Color = Color::srgb(1.0, 0.85, 0.35);
 const PROGRESS: Color = Color::srgb(0.75, 0.4, 1.0);
 const BOSS: Color = Color::srgb(1.0, 0.4, 0.5);
+const GOOD: Color = Color::srgb(0.45, 1.0, 0.6);
+const OKAY: Color = Color::srgb(1.0, 0.85, 0.35);
+/// So lange steht eine Meldung wie „Checkpoint erreicht“ da.
+const TOAST_TIME: f32 = 2.8;
 
 pub struct HudPlugin;
 
@@ -23,7 +27,7 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Score>()
             .add_systems(Startup, spawn_hud)
-            .add_systems(Update, (update_hud, update_charges, update_progress, update_ship_name));
+            .add_systems(Update, (update_hud, update_charges, update_progress, update_ship_name, show_toast));
     }
 }
 
@@ -51,6 +55,13 @@ struct ShipNameText;
 
 #[derive(Component)]
 struct BossLabel;
+
+#[derive(Component)]
+struct CheckpointMarker;
+
+/// Kurze Meldung am unteren Rand; blendet sich aus.
+#[derive(Component)]
+struct Toast;
 
 fn font(size: f32) -> TextFont {
     TextFont {
@@ -122,8 +133,9 @@ fn spawn_hud(mut commands: Commands) {
         .id();
     let progress = bar(&mut commands, top, 360.0, 8.0);
     commands.spawn((ProgressFill, fill(8.0, PROGRESS), ChildOf(progress)));
-    // Markierung für den Checkpoint
+    // Markierung für den Checkpoint; wird grün, sobald er erreicht ist.
     commands.spawn((
+        CheckpointMarker,
         Node {
             position_type: PositionType::Absolute,
             left: Val::Percent(CHECKPOINT_SHARE * 100.0),
@@ -136,6 +148,17 @@ fn spawn_hud(mut commands: Commands) {
         ChildOf(progress),
     ));
     commands.spawn((BossLabel, Text::new("Boss"), TextColor(BOSS), font(15.0), ChildOf(top)));
+    let toast_row = commands
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            // Unten, damit sie weder Boss-Banner noch Aufgabenfenster verdeckt.
+            bottom: Val::Px(64.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        })
+        .id();
+    commands.spawn((Toast, Text::new(""), TextColor(GOOD), font(22.0), ChildOf(toast_row)));
 
     commands.spawn((
         ShipNameText,
@@ -172,8 +195,10 @@ fn update_progress(
     progress: Res<LevelProgress>,
     mut fill: Single<&mut Node, With<ProgressFill>>,
     mut label: Single<(&mut Text, &mut TextColor), With<BossLabel>>,
+    mut marker: Single<&mut BackgroundColor, With<CheckpointMarker>>,
 ) {
     fill.width = Val::Percent(progress.share() * 100.0);
+    marker.0 = if progress.checkpoint >= CHECKPOINT_SHARE * LEVEL_LENGTH { GOOD } else { TEXT };
     if progress.boss_ahead() {
         label.0.0 = "Boss voraus!".into();
         // Blinkt, damit man es mitbekommt.
@@ -188,5 +213,42 @@ fn update_progress(
 fn update_ship_name(name: Res<ShipName>, ship: Res<Ship>, mut text: Single<&mut Text, With<ShipNameText>>) {
     if name.is_changed() || ship.is_changed() || text.0.is_empty() {
         text.0 = format!("{} · {}", name.0, ship.describe());
+    }
+}
+
+/// Meldungen zu Checkpoints: erreicht (mit gesicherten Credits) und Neustart nach einem Verlust.
+fn show_toast(
+    time: Res<Time<Real>>,
+    progress: Res<LevelProgress>,
+    mut reached: MessageReader<CheckpointReached>,
+    mut rewinds: MessageReader<Rewind>,
+    toast: Single<(&mut Text, &mut TextColor), With<Toast>>,
+    mut remaining: Local<f32>,
+) {
+    let (mut text, mut color) = toast.into_inner();
+    let mut base = None;
+    for checkpoint in reached.read() {
+        let mut message = if checkpoint.before_boss { "Checkpoint vor dem Boss".to_string() } else { "Checkpoint erreicht".to_string() };
+        if checkpoint.secured > 0 {
+            message += &format!(" · {} Credits gesichert", checkpoint.secured);
+        }
+        base = Some((message, GOOD));
+    }
+    if rewinds.read().count() > 0 {
+        let from = if progress.checkpoint > 0.0 { "ab dem Checkpoint" } else { "vom Levelanfang" };
+        base = Some((format!("Schiff verloren – neues Schiff, weiter {from}"), OKAY));
+    }
+    if let Some((message, tint)) = base {
+        text.0 = message;
+        color.0 = tint;
+        *remaining = TOAST_TIME;
+    }
+    if *remaining > 0.0 {
+        *remaining -= time.delta_secs();
+        // In der letzten halben Sekunde ausblenden.
+        color.0.set_alpha((*remaining / 0.5).clamp(0.0, 1.0));
+        if *remaining <= 0.0 {
+            text.0.clear();
+        }
     }
 }

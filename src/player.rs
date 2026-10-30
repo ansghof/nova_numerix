@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 
 use crate::boss::BossState;
-use crate::level::LevelStarted;
+use crate::level::{LevelStarted, Rewind};
 use crate::shipyard::Credits;
 use crate::neon::{CYAN, GREEN, Shape, WHITE, polygon, scaled};
 use crate::ship::Hull;
@@ -414,14 +414,15 @@ fn draw_bubble(
     gizmos.circle_2d(pos, BUBBLE_RADIUS - 5.0, scaled(WHITE, pulse * 0.15)).resolution(64);
 }
 
-/// Wird das Schiff zerstört, gehen alle Waffen verloren; ein neues startet links. Rumpf und
-/// Panzerung bleiben.
+/// Wird das Schiff zerstört, gehen alle Waffen und die noch nicht gesicherten Flug-Credits
+/// verloren; ein neues startet links am letzten Checkpoint. Rumpf und Panzerung bleiben.
 fn check_death(
     mut loadout: ResMut<Loadout>,
     mut particles: ResMut<Particles>,
     mut rng: ResMut<Rng>,
     mut shake: ResMut<Shake>,
     mut credits: ResMut<Credits>,
+    mut rewind: MessageWriter<Rewind>,
     field: Res<Playfield>,
     player: Single<(&mut Player, &mut Transform, &Shape)>,
 ) {
@@ -437,4 +438,5 @@ fn check_death(
     player.health = player.max_health;
     player.invulnerable = RESPAWN_INVULNERABLE;
     transform.translation = start(&field);
+    rewind.write(Rewind);
 }

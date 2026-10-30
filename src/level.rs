@@ -7,12 +7,14 @@ use bevy::prelude::*;
 use crate::enemy::Formation;
 use crate::neon::{GREEN, MAGENTA, ORANGE, VIOLET};
 use crate::save::Mastery;
+use crate::shipyard::Credits;
 use crate::task::{BigTimesTable, BinaryNumbers, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
 use crate::{AppState, GamePhase, Gameplay};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
 pub const LEVEL_LENGTH: f32 = 120.0;
-/// Hier liegt der Checkpoint, als Anteil der Levellänge.
+/// Hier liegt der Checkpoint mitten im Level, als Anteil der Levellänge. Ein zweiter liegt
+/// direkt vor dem Boss.
 pub const CHECKPOINT_SHARE: f32 = 0.6;
 
 pub struct LevelPlugin;
@@ -24,7 +26,9 @@ impl Plugin for LevelPlugin {
             .init_resource::<CurrentLevel>()
             .init_resource::<Campaign>()
             .add_message::<LevelStarted>()
-            .add_systems(Update, (advance.in_set(Gameplay), begin_level));
+            .add_message::<Rewind>()
+            .add_message::<CheckpointReached>()
+            .add_systems(Update, ((advance, reach_checkpoints).chain().in_set(Gameplay), begin_level, rewind));
     }
 }
 
@@ -182,9 +186,23 @@ impl Default for Campaign {
 #[derive(Message)]
 pub struct LevelStarted(pub usize);
 
+/// Das Schiff ist verloren: Das Level geht ab dem letzten Checkpoint weiter. Jedes Modul räumt
+/// darauf hin das Feld; Statistik, Superwaffe und gesicherte Credits bleiben.
+#[derive(Message)]
+pub struct Rewind;
+
+/// Ein Checkpoint ist erreicht; so viele Flug-Credits wurden dabei gesichert.
+#[derive(Message)]
+pub struct CheckpointReached {
+    pub before_boss: bool,
+    pub secured: u32,
+}
+
 #[derive(Resource, Default)]
 pub struct LevelProgress {
     pub elapsed: f32,
+    /// Spielzeit des zuletzt erreichten Checkpoints; 0 heißt Levelanfang.
+    pub checkpoint: f32,
 }
 
 impl LevelProgress {
@@ -244,7 +262,7 @@ pub fn begin_level(
     if let Some(weights) = mastery.0.get(def.topic) {
         topic.0.set_weights(weights);
     }
-    progress.elapsed = 0.0;
+    *progress = LevelProgress::default();
     *stats = LevelStats::default();
     time.unpause();
     time.set_relative_speed(1.0);
@@ -254,4 +272,27 @@ pub fn begin_level(
 
 fn advance(time: Res<Time>, mut progress: ResMut<LevelProgress>) {
     progress.elapsed += time.delta_secs();
+}
+
+/// Checkpoints mitten im Level und vor dem Boss: Die Flug-Credits wandern aufs Konto.
+fn reach_checkpoints(
+    mut progress: ResMut<LevelProgress>,
+    mut credits: ResMut<Credits>,
+    mut reached: MessageWriter<CheckpointReached>,
+) {
+    for at in [CHECKPOINT_SHARE * LEVEL_LENGTH, LEVEL_LENGTH] {
+        if progress.elapsed >= at && progress.checkpoint < at {
+            progress.checkpoint = at;
+            let secured = credits.secure();
+            info!("Checkpoint erreicht, {secured} Credits gesichert");
+            reached.write(CheckpointReached { before_boss: at >= LEVEL_LENGTH, secured });
+        }
+    }
+}
+
+/// Zurück zum letzten Checkpoint.
+fn rewind(mut rewinds: MessageReader<Rewind>, mut progress: ResMut<LevelProgress>) {
+    if rewinds.read().count() > 0 {
+        progress.elapsed = progress.checkpoint;
+    }
 }

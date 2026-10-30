@@ -10,7 +10,7 @@
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::level::{BossDef, BossStyle, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats};
+use crate::level::{Rewind, BossDef, BossStyle, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats};
 use crate::shipyard::{Credits, new_goods};
 use crate::neon::{GOLD, GREEN, MAGENTA, ORANGE, RED, Shape, WHITE, polygon, scaled};
 use crate::particles::Particles;
@@ -810,8 +810,9 @@ fn victory(
     }
     if !*shown {
         *shown = true;
-        let earned = credits.flight + BOSS_CREDITS;
-        credits.bank += earned;
+        // Was an Checkpoints schon gesichert wurde, zählt zur Ausbeute des Levels dazu.
+        let earned = credits.secured + credits.flight + BOSS_CREDITS;
+        credits.bank += credits.flight + BOSS_CREDITS;
         credits.flight = 0;
         let unlocked_before = campaign.unlocked;
         campaign.unlocked = campaign.unlocked.max((current.0 + 2).min(LEVELS.len()));
@@ -832,13 +833,16 @@ fn victory(
 }
 
 /// Ein neues Level beginnt: Boss, Banner und Siegerbild verschwinden.
+/// Ein neues Level oder ein Neustart am Checkpoint: Boss, Banner und Siegerbild verschwinden.
+/// Steht der Boss danach noch bevor, kommt er frisch wieder.
 fn clear_on_start(
     mut commands: Commands,
     mut started: MessageReader<LevelStarted>,
+    mut rewind: MessageReader<Rewind>,
     mut state: ResMut<BossState>,
     leftovers: Query<Entity, Or<(With<Boss>, With<Banner>, With<VictoryScreen>)>>,
 ) {
-    if started.read().last().is_none() {
+    if started.read().count() + rewind.read().count() == 0 {
         return;
     }
     *state = BossState::default();
