@@ -7,7 +7,7 @@ use crate::neon::{CYAN, Shape, WHITE, scaled};
 use crate::particles::Particles;
 use crate::rng::Rng;
 use crate::shots;
-use crate::{GamePhase, HALF_HEIGHT, HALF_WIDTH};
+use crate::{GamePhase, HALF_HEIGHT, HALF_WIDTH, Shake};
 
 pub const MAX_HEALTH: f32 = 100.0;
 pub const MAX_LEVEL: u8 = 5;
@@ -239,6 +239,7 @@ fn check_death(
     mut loadout: ResMut<Loadout>,
     mut particles: ResMut<Particles>,
     mut rng: ResMut<Rng>,
+    mut shake: ResMut<Shake>,
     player: Single<(&mut Player, &mut Transform, &Shape)>,
 ) {
     let (mut player, mut transform, shape) = player.into_inner();
@@ -246,6 +247,7 @@ fn check_death(
         return;
     }
     particles.explode(&mut rng, shape, &transform, 2.0);
+    shake.0 = 12.0;
     *loadout = Loadout::default();
     player.health = MAX_HEALTH;
     player.invulnerable = RESPAWN_INVULNERABLE;

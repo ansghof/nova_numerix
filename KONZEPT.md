@@ -14,7 +14,9 @@ Hauptmenü → Speicherslot (1–5) → Sternenkarte (Levelauswahl)
 ```
 
 Ein Level dauert etwa 4–6 Minuten: Anflug, 3–4 Abschnitte mit Gegnerwellen, ein
-Zwischenereignis, Checkpoint, Boss.
+Zwischenereignis, Checkpoint, Boss. Ein Fortschrittsbalken oben in der Mitte zeigt, wie weit
+es noch bis zum Boss ist, mit einer Markierung für den Checkpoint. Er läuft in Spielzeit,
+steht während einer Aufgabe also fast still.
 
 ## Steuerung
 

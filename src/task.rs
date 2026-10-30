@@ -13,6 +13,7 @@ use crate::enemy::FreightDestroyed;
 use crate::hud::Score;
 use crate::player::{Loadout, MAX_HEALTH, MAX_LEVEL, Player};
 use crate::rng::Rng;
+use crate::superweapon::FireSuper;
 
 /// Weltgeschwindigkeit während einer Aufgabe.
 const SLOW_MOTION: f32 = 0.1;
@@ -29,6 +30,8 @@ const SPEED_POINTS: f32 = 400.0;
 /// Ab diesem Anteil an Restzeit gilt eine Antwort als blitzschnell.
 const FAST_SHARE: f32 = 0.5;
 const MAX_DIGITS: usize = 4;
+/// Die Superwaffe hat etwas mehr Zeit, weil ein Fehler eine zweite Aufgabe nach sich zieht.
+const SUPER_EXTRA_TIME: f32 = 3.0;
 
 const TEXT: Color = Color::srgb(0.92, 0.96, 1.0);
 const DIM: Color = Color::srgb(0.55, 0.62, 0.75);
@@ -97,15 +100,23 @@ impl SmallTimesTable {
     pub fn new() -> Self {
         Self { weights: vec![1.0; Self::SPAN * Self::SPAN], last: None }
     }
+
+    /// Dieselbe Aufgabe wie zuletzt, auch vertauscht: Nach 10 × 3 soll nicht 3 × 10 kommen.
+    fn repeats_last(&self, fact: usize) -> bool {
+        self.last.is_some_and(|last| {
+            let swapped = (last % Self::SPAN) * Self::SPAN + last / Self::SPAN;
+            fact == last || fact == swapped
+        })
+    }
 }
 
 impl TaskGenerator for SmallTimesTable {
     fn next(&mut self, rng: &mut Rng) -> Task {
-        let total: f32 = self.weights.iter().enumerate().filter(|(i, _)| Some(*i) != self.last).map(|(_, w)| w).sum();
+        let total: f32 = self.weights.iter().enumerate().filter(|(i, _)| !self.repeats_last(*i)).map(|(_, w)| w).sum();
         let mut pick = rng.f32() * total;
         let mut fact = 0;
         for (i, w) in self.weights.iter().enumerate() {
-            if Some(i) == self.last {
+            if self.repeats_last(i) {
                 continue;
             }
             fact = i;
@@ -135,9 +146,21 @@ impl TaskGenerator for SmallTimesTable {
 #[derive(Resource)]
 pub struct Topic(pub Box<dyn TaskGenerator>);
 
-/// Abgeschossene Frachtdrohnen, deren Aufgabe noch aussteht.
+/// Aufgaben, die starten, sobald gerade keine läuft.
 #[derive(Resource, Default)]
-struct PendingTasks(u32);
+pub struct PendingTasks {
+    /// Abgeschossene Frachtdrohnen.
+    freight: u32,
+    /// Der Spieler will die Superwaffe zünden.
+    pub super_weapon: bool,
+}
+
+/// Wofür gerechnet wird.
+enum Purpose {
+    Freight(Reward),
+    /// Bei einem Fehler gibt es eine zweite Aufgabe; die Zeit läuft dabei weiter.
+    Super { second_chance_used: bool },
+}
 
 #[derive(Clone, Copy)]
 enum Reward {
@@ -181,12 +204,13 @@ impl Reward {
 }
 
 #[derive(Resource)]
-struct ActiveTask {
-    task: Task,
-    reward: Reward,
+pub struct ActiveTask {
+    pub task: Task,
+    purpose: Purpose,
     input: String,
     /// Verstrichene echte Zeit seit dem Öffnen.
     elapsed: f32,
+    time_limit: f32,
     /// Verstrichene echte Zeit in der Rückkehr-Phase.
     returning: f32,
 }
@@ -211,7 +235,7 @@ fn font(size: f32) -> TextFont {
 }
 
 fn count_freight(mut messages: MessageReader<FreightDestroyed>, mut pending: ResMut<PendingTasks>) {
-    pending.0 += messages.read().count() as u32;
+    pending.freight += messages.read().count() as u32;
 }
 
 fn start_task(
@@ -223,13 +247,18 @@ fn start_task(
     player: Single<&Player>,
     mut next: ResMut<NextState<GamePhase>>,
 ) {
-    if pending.0 == 0 {
+    let (purpose, extra_time) = if pending.super_weapon {
+        pending.super_weapon = false;
+        (Purpose::Super { second_chance_used: false }, SUPER_EXTRA_TIME)
+    } else if pending.freight > 0 {
+        pending.freight -= 1;
+        (Purpose::Freight(Reward::choose(&mut rng, &loadout, player.health)), 0.0)
+    } else {
         return;
-    }
-    pending.0 -= 1;
+    };
     let task = topic.0.next(&mut rng);
-    let reward = Reward::choose(&mut rng, &loadout, player.health);
-    commands.insert_resource(ActiveTask { task, reward, input: String::new(), elapsed: 0.0, returning: 0.0 });
+    let time_limit = task.time_limit + extra_time;
+    commands.insert_resource(ActiveTask { task, purpose, input: String::new(), elapsed: 0.0, time_limit, returning: 0.0 });
     next.set(GamePhase::Task);
 }
 
@@ -263,8 +292,12 @@ fn spawn_popup(mut commands: Commands, active: Res<ActiveTask>) {
             ChildOf(root),
         ))
         .id();
+    let title = match &active.purpose {
+        Purpose::Freight(reward) => format!("Fracht gesichert · Belohnung: {}", reward.name()),
+        Purpose::Super { .. } => "Superwaffe laden · je schneller, desto stärker".to_string(),
+    };
     commands.spawn((
-        Text::new(format!("Fracht gesichert · Belohnung: {}", active.reward.name())),
+        Text::new(title),
         TextColor(OKAY),
         font(18.0),
         ChildOf(panel),
@@ -294,7 +327,7 @@ fn spawn_popup(mut commands: Commands, active: Res<ActiveTask>) {
 
 impl ActiveTask {
     fn remaining_share(&self) -> f32 {
-        (1.0 - self.elapsed / self.task.time_limit).clamp(0.0, 1.0)
+        (1.0 - self.elapsed / self.time_limit).clamp(0.0, 1.0)
     }
 }
 
@@ -324,6 +357,8 @@ fn type_answer(
     mut topic: ResMut<Topic>,
     mut score: ResMut<Score>,
     mut loadout: ResMut<Loadout>,
+    mut rng: ResMut<Rng>,
+    mut fire: MessageWriter<FireSuper>,
     mut player: Single<&mut Player>,
     mut prompt: Single<(&mut Text, &mut TextColor), (With<PromptText>, Without<HintText>)>,
     mut hint: Single<(&mut Text, &mut TextColor), (With<HintText>, Without<PromptText>)>,
@@ -358,28 +393,56 @@ fn type_answer(
         return;
     };
 
+    // Einzelne Felder getrennt ausleihen können.
+    let active = &mut *active;
     let solution = format!("{} = {}", active.task.prompt, active.task.answer);
-    let reward = active.reward;
-    let (headline, color, feedback) = match outcome {
-        Outcome::Correct { remaining_share } => {
+    topic.0.record(&active.task, &outcome);
+    let (color, feedback) = match (&mut active.purpose, outcome) {
+        (Purpose::Freight(reward), Outcome::Correct { remaining_share }) => {
             let points = (BASE_POINTS + SPEED_POINTS * remaining_share).round() as u32;
             score.0 += points;
             reward.apply(&mut loadout, &mut player);
             let praise = if remaining_share >= FAST_SHARE { "Blitzschnell!" } else { "Sauber gerechnet!" };
-            (solution, GOOD, format!("{praise} +{points} Punkte · {}", reward.name()))
+            (GOOD, format!("{praise} +{points} Punkte · {}", reward.name()))
         }
-        Outcome::TimedOut => {
+        (Purpose::Freight(reward), Outcome::TimedOut) => {
             reward.apply(&mut loadout, &mut player);
-            (solution, OKAY, format!("Zeit um – {} gibt's trotzdem. Nächstes Mal schneller!", reward.name()))
+            (OKAY, format!("Zeit um – {} gibt's trotzdem. Nächstes Mal schneller!", reward.name()))
         }
-        Outcome::Wrong => {
+        (Purpose::Freight(_), Outcome::Wrong) => {
             // Ein Fehler kostet etwas Schild, aber nie das Schiff.
             player.health = (player.health - WRONG_DAMAGE).max(1.0);
-            (solution, BAD, format!("Knapp daneben – richtig ist {}", active.task.answer))
+            (BAD, format!("Knapp daneben – richtig ist {}", active.task.answer))
+        }
+        (Purpose::Super { .. }, Outcome::Correct { remaining_share }) => {
+            let points = (BASE_POINTS + SPEED_POINTS * remaining_share).round() as u32;
+            score.0 += points;
+            let fast = remaining_share >= FAST_SHARE;
+            fire.write(FireSuper { tier: if fast { 3 } else { 2 }, power: remaining_share });
+            let praise = if fast { "Volle Ladung!" } else { "Superwaffe gezündet!" };
+            (GOOD, format!("{praise} +{points} Punkte"))
+        }
+        (Purpose::Super { second_chance_used }, Outcome::Wrong) if !*second_chance_used => {
+            // Zweite Chance: neue Aufgabe, der Balken läuft einfach weiter.
+            *second_chance_used = true;
+            let message = format!("Falsch: {solution}. Neue Aufgabe, die Zeit läuft weiter!");
+            active.task = topic.0.next(&mut rng);
+            active.input.clear();
+            hint.0.0 = message;
+            hint.1.0 = BAD;
+            return;
+        }
+        (Purpose::Super { .. }, Outcome::Wrong) => {
+            player.health = (player.health - WRONG_DAMAGE).max(1.0);
+            fire.write(FireSuper { tier: 1, power: 0.0 });
+            (BAD, format!("Fehlzündung – richtig ist {}. Nur ein schwacher Puls.", active.task.answer))
+        }
+        (Purpose::Super { .. }, Outcome::TimedOut) => {
+            fire.write(FireSuper { tier: 1, power: 0.0 });
+            (OKAY, "Zeit um – ein schwacher Puls. Nächstes Mal schneller!".to_string())
         }
     };
-    topic.0.record(&active.task, &outcome);
-    prompt.0.0 = headline;
+    prompt.0.0 = solution;
     prompt.1.0 = color;
     hint.0.0 = feedback;
     hint.1.0 = color;

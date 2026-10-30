@@ -1,11 +1,15 @@
 mod background;
+#[cfg(debug_assertions)]
+mod devtools;
 mod enemy;
 mod hud;
+mod level;
 mod neon;
 mod particles;
 mod player;
 mod rng;
 mod shots;
+mod superweapon;
 mod task;
 
 use bevy::camera::{Hdr, ScalingMode};
@@ -29,11 +33,15 @@ pub enum GamePhase {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
+    // Automatische Testläufe sollen niemandem den Fokus wegnehmen.
+    let test_run = cfg!(debug_assertions) && std::env::var("NOVA_TEST").is_ok();
+
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Nova Numerix".into(),
                 resolution: (1280, 720).into(),
+                focused: !test_run,
                 ..default()
             }),
             ..default()
@@ -41,7 +49,9 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.005, 0.005, 0.02)))
         .init_state::<GamePhase>()
         .init_resource::<rng::Rng>()
+        .init_resource::<Shake>()
         .add_systems(Startup, spawn_camera)
+        .add_systems(Update, shake_camera)
         .add_plugins((
             neon::NeonPlugin,
             particles::ParticlesPlugin,
@@ -50,9 +60,27 @@ fn main() {
             shots::ShotsPlugin,
             enemy::EnemyPlugin,
             task::TaskPlugin,
+            superweapon::SuperWeaponPlugin,
+            level::LevelPlugin,
             hud::HudPlugin,
-        ))
-        .run();
+        ));
+    #[cfg(debug_assertions)]
+    app.add_plugins(devtools::DevToolsPlugin);
+    app.run();
+}
+
+/// Stärke des Kamerawackelns in Welt-Einheiten; klingt in Echtzeit ab.
+#[derive(Resource, Default)]
+pub struct Shake(pub f32);
+
+fn shake_camera(
+    time: Res<Time<Real>>,
+    mut shake: ResMut<Shake>,
+    mut rng: ResMut<rng::Rng>,
+    mut camera: Single<&mut Transform, With<Camera2d>>,
+) {
+    shake.0 = (shake.0 - time.delta_secs() * 30.0).max(0.0);
+    camera.translation = (rng.direction() * shake.0).extend(camera.translation.z);
 }
 
 fn spawn_camera(mut commands: Commands) {
