@@ -12,7 +12,8 @@ use bevy::prelude::*;
 
 use crate::AppState;
 use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted};
-use crate::player::{Loadout, MAX_DRONES, MAX_HEALTH, MAX_LEVEL, MAX_SIDE, Player};
+use crate::player::{Loadout, MAX_DRONES, MAX_LEVEL, MAX_SIDE, Player};
+use crate::ship::{Hull, MAX_ARMOR, Ship};
 use crate::quibbo::QuibboArt;
 use crate::rng::Rng;
 use crate::superweapon::SuperWeapon;
@@ -134,6 +135,8 @@ impl Run {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Item {
     Repair,
+    Armor,
+    Hull,
     Laser,
     Missiles,
     Side,
@@ -142,7 +145,20 @@ enum Item {
     SlowChip,
 }
 
-const ITEMS: [Item; 7] = [Item::Repair, Item::Laser, Item::Missiles, Item::Side, Item::Drone, Item::SuperCharge, Item::SlowChip];
+const ITEMS: [Item; 9] = [
+    Item::Repair,
+    Item::Armor,
+    Item::Hull,
+    Item::Laser,
+    Item::Missiles,
+    Item::Side,
+    Item::Drone,
+    Item::SuperCharge,
+    Item::SlowChip,
+];
+/// Panzerung kostet je Stufe mehr: 700, 1400, 2100.
+const ARMOR_PRICE_PER_LEVEL: u32 = 700;
+const NO_PLATFORM: &str = "kein Waffenplatz frei – ein größerer Rumpf hat mehr";
 
 /// Nach so vielen besiegten Bossen führt Quibbo Seitenkanonen und Begleitdrohnen. Bis dahin
 /// stehen sie mit einem Hinweis im Laden, damit man weiß, worauf man hinarbeitet.
@@ -171,6 +187,11 @@ fn locked(after: usize) -> String {
 /// Was der Shop über das Schiff wissen muss, um Preise und Angebote zu bestimmen.
 struct ShipState {
     health: f32,
+    max_health: f32,
+    hull: Hull,
+    armor: u8,
+    /// Ob für ein neues Waffensystem noch ein Platz frei ist.
+    free_platform: bool,
     laser: u8,
     missiles: u8,
     side: u8,
@@ -181,9 +202,13 @@ struct ShipState {
 }
 
 impl ShipState {
-    fn new(player: &Player, loadout: &Loadout, weapon: &SuperWeapon, chips: &SlowChips, campaign: &Campaign) -> Self {
+    fn new(player: &Player, ship: &Ship, loadout: &Loadout, weapon: &SuperWeapon, chips: &SlowChips, campaign: &Campaign) -> Self {
         Self {
             health: player.health,
+            max_health: player.max_health,
+            hull: ship.hull,
+            armor: ship.armor,
+            free_platform: loadout.systems() < ship.hull.platforms(),
             laser: loadout.laser,
             missiles: loadout.missiles,
             side: loadout.side,
@@ -200,18 +225,39 @@ impl Item {
     fn offer(self, ship: &ShipState) -> (String, String, Option<u32>) {
         match self {
             Item::Repair => {
-                let missing = (MAX_HEALTH - ship.health).max(0.0).ceil();
+                let missing = (ship.max_health - ship.health).max(0.0).ceil();
                 let points = missing.min(REPAIR_STEP);
                 let price = (points > 0.0).then_some(points as u32 * REPAIR_PER_POINT);
                 let name = if points > 0.0 { format!("Reparatur +{points:.0}") } else { "Reparatur".to_string() };
-                (name, format!("Schild jetzt {:.0}/{MAX_HEALTH:.0}", ship.health), price)
+                (name, format!("Schild jetzt {:.0}/{:.0}", ship.health, ship.max_health), price)
             }
+            Item::Armor => {
+                let next = ship.armor + 1;
+                let price = (ship.armor < MAX_ARMOR).then_some(ARMOR_PRICE_PER_LEVEL * next as u32);
+                let name = if ship.armor < MAX_ARMOR { format!("Panzerung Stufe {next}") } else { "Panzerung".to_string() };
+                let description = format!(
+                    "Treffer machen {} % weniger Schaden, bleibt auch beim Verlust des Schiffs",
+                    Ship::armor_percent(next.min(MAX_ARMOR))
+                );
+                (name, description, price)
+            }
+            Item::Hull => match ship.hull.next() {
+                Some(next) => (
+                    format!("Rumpf {}", next.name()),
+                    format!("{}, bleibt für immer (jetzt: {})", next.describe(), ship.hull.name()),
+                    Some(next.price()),
+                ),
+                None => (format!("Rumpf {}", ship.hull.name()), "der beste Rumpf, den Quibbo hat".into(), None),
+            },
             Item::Laser => {
                 let next = ship.laser + 1;
                 let price = (ship.laser < MAX_LEVEL).then_some(LASER_PRICE_PER_LEVEL * ship.laser as u32);
                 (format!("Laser Stufe {next}"), "ein Strahl mehr".into(), price)
             }
             Item::Missiles => {
+                if ship.missiles == 0 && !ship.free_platform {
+                    return ("Raketenwerfer".into(), NO_PLATFORM.into(), None);
+                }
                 let price = match ship.missiles {
                     0 => Some(MISSILE_LAUNCHER_PRICE),
                     m if m < MAX_LEVEL => Some(LASER_PRICE_PER_LEVEL * (m as u32 + 1)),
@@ -221,6 +267,7 @@ impl Item {
                 (name, "zielsuchend, feuern mit dem Laser".into(), price)
             }
             Item::Side if ship.beaten < SIDE_AFTER => ("Seitenkanonen".into(), locked(SIDE_AFTER), None),
+            Item::Side if ship.side == 0 && !ship.free_platform => ("Seitenkanonen".into(), NO_PLATFORM.into(), None),
             Item::Side => {
                 let price = match ship.side {
                     0 => Some(SIDE_PRICE),
@@ -231,6 +278,7 @@ impl Item {
                 (name, "feuern schräg nach oben und unten, gut gegen Geschütze".into(), price)
             }
             Item::Drone if ship.beaten < DRONES_AFTER => ("Begleitdrohne".into(), locked(DRONES_AFTER), None),
+            Item::Drone if ship.drones == 0 && !ship.free_platform => ("Begleitdrohne".into(), NO_PLATFORM.into(), None),
             Item::Drone => {
                 let price = (ship.drones < MAX_DRONES).then_some(DRONE_PRICE * (ship.drones as u32 + 1));
                 (
@@ -395,9 +443,9 @@ fn enter(
         Node {
             flex_direction: FlexDirection::Column,
             align_items: AlignItems::Stretch,
-            row_gap: Val::Px(8.0),
+            row_gap: Val::Px(6.0),
             width: Val::Px(640.0),
-            padding: UiRect::all(Val::Px(28.0)),
+            padding: UiRect::axes(Val::Px(28.0), Val::Px(20.0)),
             border: UiRect::all(Val::Px(2.0)),
             border_radius: BorderRadius::all(Val::Px(12.0)),
             ..default()
@@ -443,6 +491,7 @@ fn update(
     mut weapon: ResMut<SuperWeapon>,
     mut chips: ResMut<SlowChips>,
     mut player: Single<&mut Player>,
+    mut vessel: ResMut<Ship>,
     campaign: Res<Campaign>,
     mut started: MessageWriter<LevelStarted>,
 ) {
@@ -527,7 +576,7 @@ fn update(
             }
         }
         View::Shop { selected, haggle, feedback, .. } => {
-            let ship = ShipState::new(&player, &loadout, &weapon, &chips, &campaign);
+            let ship = ShipState::new(&player, &vessel, &loadout, &weapon, &chips, &campaign);
             if let Some(h) = haggle {
                 if let Some((_, _, remaining)) = &mut h.result {
                     *remaining -= dt;
@@ -604,7 +653,15 @@ fn update(
                                 // Ein Rabatt gilt für einen Kauf.
                                 yard.discounts.retain(|(i, _)| *i != item);
                                 match item {
-                                    Item::Repair => player.health = (player.health + REPAIR_STEP).min(MAX_HEALTH),
+                                    Item::Repair => player.health = (player.health + REPAIR_STEP).min(player.max_health),
+                                    Item::Armor => vessel.armor += 1,
+                                    Item::Hull => {
+                                        // Der neue Rumpf kommt mit vollem Zusatzschild.
+                                        let next = vessel.hull.next().unwrap_or(vessel.hull);
+                                        player.health += next.max_health() - vessel.hull.max_health();
+                                        player.max_health = next.max_health();
+                                        vessel.hull = next;
+                                    }
                                     Item::Laser => loadout.laser += 1,
                                     Item::Missiles => loadout.missiles += 1,
                                     Item::Side => loadout.side += 1,
@@ -700,7 +757,7 @@ fn row(commands: &mut Commands, parent: Entity, selected: bool) -> Entity {
                 flex_direction: FlexDirection::Row,
                 justify_content: JustifyContent::SpaceBetween,
                 align_items: AlignItems::Center,
-                padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
+                padding: UiRect::axes(Val::Px(16.0), Val::Px(5.0)),
                 border: UiRect::all(Val::Px(2.0)),
                 border_radius: BorderRadius::all(Val::Px(8.0)),
                 ..default()
@@ -750,6 +807,7 @@ fn render(
     weapon: Res<SuperWeapon>,
     chips: Res<SlowChips>,
     player: Single<&Player>,
+    vessel: Res<Ship>,
     campaign: Res<Campaign>,
     content: Single<Entity, With<Content>>,
     mut portrait: Single<(&mut Node, &mut ImageNode), With<QuibboPortrait>>,
@@ -766,7 +824,7 @@ fn render(
     };
     let content = *content;
     commands.entity(content).despawn_related::<Children>();
-    let ship = ShipState::new(&player, &loadout, &weapon, &chips, &campaign);
+    let ship = ShipState::new(&player, &vessel, &loadout, &weapon, &chips, &campaign);
     let c = &mut commands;
 
     match &shipyard.view {
@@ -774,7 +832,9 @@ fn render(
             text(c, content, "Werft", FRAME, 36.0);
             text(c, content, format!("{} Credits", credits.bank), OKAY, 24.0);
             let weapons = loadout.describe();
-            text(c, content, format!("Schild {:.0}/{MAX_HEALTH:.0} · {weapons}", ship.health), TEXT, 18.0);
+            text(c, content, format!("Rumpf {} · Schild {:.0}/{:.0}", vessel.describe(), ship.health, ship.max_health), TEXT, 18.0);
+            let platforms = format!("Waffenplätze {}/{}: {weapons}", loadout.systems(), vessel.hull.platforms());
+            text(c, content, platforms, TEXT, 18.0);
             let left = FULL_TASKS.saturating_sub(training.solved);
             let options = [
                 format!("Rechentraining: Aufgaben lösen, Credits verdienen (noch {left} voll)"),
@@ -825,15 +885,23 @@ fn render(
             text(c, content, "Enter oder Klick: Laden betreten · Esc: zurück zur Werft", DIM, 14.0);
         }
         View::Shop { selected, haggle, feedback, .. } => {
-            text(c, content, "Quibbos Laden", FRAME, 32.0);
+            text(c, content, "Quibbos Laden", FRAME, 26.0);
             let greeting = match shipyard.mood.0 {
                 Mood::Neutral => "„Wer gut rechnet, zahlt weniger.“",
                 Mood::Pleased => "„Ein Vergnügen, mit dir Geschäfte zu machen!“",
                 Mood::Offended => "„Hmpf.“",
             };
-            text(c, content, greeting, DIM, 16.0);
-            text(c, content, format!("{} Credits", credits.bank), OKAY, 22.0);
+            // Gruß und Kontostand in einer Zeile, damit alle Waren aufs Bild passen.
+            let header = c
+                .spawn((Node { justify_content: JustifyContent::SpaceBetween, ..default() }, ChildOf(content)))
+                .id();
+            text(c, header, greeting, DIM, 16.0);
+            text(c, header, format!("{} Credits", credits.bank), OKAY, 20.0);
             for (i, item) in ITEMS.iter().enumerate() {
+                // Beim Verhandeln steht nur die Ware da, um die es geht; sonst passt es nicht aufs Bild.
+                if haggle.as_ref().is_some_and(|h| h.item != *item) {
+                    continue;
+                }
                 let (name, description, list) = item.offer(&ship);
                 let r = clickable_row(c, content, i, i == *selected);
                 let labels = c
@@ -880,7 +948,12 @@ fn render(
             if let Some((message, color)) = feedback {
                 text(c, content, message.clone(), *color, 17.0);
             }
-            text(c, content, "W/S oder Maus wählen · Enter oder Klick kaufen · V verhandeln · Esc zurück", DIM, 14.0);
+            let help = if haggle.is_some() {
+                "Nummernblock: Antwort tippen · Enter abgeben · Esc abbrechen"
+            } else {
+                "W/S oder Maus wählen · Enter oder Klick kaufen · V verhandeln · Esc zurück"
+            };
+            text(c, content, help, DIM, 14.0);
         }
     }
 }

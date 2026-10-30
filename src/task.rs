@@ -14,7 +14,8 @@ use crate::hud::Score;
 use crate::level::{LevelStarted, LevelStats};
 use crate::shipyard::Credits;
 use crate::neon::{CYAN, GREEN, MAGENTA, Shape, VIOLET, WHITE, polygon};
-use crate::player::{Loadout, MAX_DRONES, MAX_HEALTH, MAX_LEVEL, MAX_SIDE, Player};
+use crate::player::{Loadout, MAX_DRONES, MAX_LEVEL, MAX_SIDE, Player};
+use crate::ship::Ship;
 use crate::shipyard::{DRONES_AFTER, SIDE_AFTER};
 use crate::rng::Rng;
 use crate::superweapon::FireSuper;
@@ -385,36 +386,53 @@ impl Reward {
     }
 
     /// Eine Belohnung, die gerade etwas bringt: keine Waffe über der Höchststufe, Reparatur
-    /// bevorzugt bei angeschlagenem Schiff. Neue Waffen gibt es, sobald Quibbo sie auch führt.
-    pub fn choose(rng: &mut Rng, loadout: &Loadout, health: f32, beaten: usize) -> Self {
-        if health < MAX_HEALTH * 0.5 && rng.chance(0.6) {
+    /// bevorzugt bei angeschlagenem Schiff. Neue Waffen gibt es, sobald Quibbo sie auch führt
+    /// und am Rumpf ein Waffenplatz frei ist.
+    pub fn choose(rng: &mut Rng, loadout: &Loadout, player: &Player, platforms: usize, beaten: usize) -> Self {
+        if player.health < player.max_health * 0.5 && rng.chance(0.6) {
             return Self::Repair;
         }
         let mut options = Vec::new();
         if loadout.laser < MAX_LEVEL {
             options.push(Self::Laser);
         }
-        if loadout.missiles < MAX_LEVEL {
+        if loadout.missiles < MAX_LEVEL && loadout.fits(loadout.missiles, platforms) {
             options.push(Self::Missiles);
         }
-        if beaten >= SIDE_AFTER && loadout.side < MAX_SIDE {
+        if beaten >= SIDE_AFTER && loadout.side < MAX_SIDE && loadout.fits(loadout.side, platforms) {
             options.push(Self::Side);
         }
         // Drohnen sind selten: nur jede dritte Wahl darf eine sein.
-        if beaten >= DRONES_AFTER && loadout.drones < MAX_DRONES && rng.chance(0.33) {
+        if beaten >= DRONES_AFTER
+            && loadout.drones < MAX_DRONES
+            && loadout.fits(loadout.drones, platforms)
+            && rng.chance(0.33)
+        {
             options.push(Self::Drone);
         }
         if options.is_empty() { Self::Repair } else { options[rng.below(options.len())] }
     }
 
-    fn apply(self, loadout: &mut Loadout, player: &mut Player) {
+    /// Gibt zurück, was tatsächlich an Bord kam: Ist für eine neue Waffe inzwischen kein Platz
+    /// mehr frei, wird daraus eine Reparatur.
+    fn apply(self, loadout: &mut Loadout, player: &mut Player, platforms: usize) -> Self {
+        let current = match self {
+            Self::Missiles => Some(loadout.missiles),
+            Self::Side => Some(loadout.side),
+            Self::Drone => Some(loadout.drones),
+            _ => None,
+        };
+        if current.is_some_and(|level| !loadout.fits(level, platforms)) {
+            return Self::Repair.apply(loadout, player, platforms);
+        }
         match self {
             Self::Laser => loadout.laser = (loadout.laser + 1).min(MAX_LEVEL),
             Self::Missiles => loadout.missiles = (loadout.missiles + 1).min(MAX_LEVEL),
-            Self::Repair => player.health = (player.health + REPAIR_AMOUNT).min(MAX_HEALTH),
+            Self::Repair => player.health = (player.health + REPAIR_AMOUNT).min(player.max_health),
             Self::Side => loadout.side = (loadout.side + 1).min(MAX_SIDE),
             Self::Drone => loadout.drones = (loadout.drones + 1).min(MAX_DRONES),
         }
+        self
     }
 }
 
@@ -608,6 +626,7 @@ fn type_answer(
     mut topic: ResMut<Topic>,
     mut score: ResMut<Score>,
     mut loadout: ResMut<Loadout>,
+    ship: Res<Ship>,
     mut rng: ResMut<Rng>,
     mut stats: ResMut<LevelStats>,
     mut credits: ResMut<Credits>,
@@ -658,13 +677,13 @@ fn type_answer(
         (Purpose::Freight(reward), Outcome::Correct { remaining_share }) => {
             let points = (BASE_POINTS + SPEED_POINTS * remaining_share).round() as u32;
             score.0 += points;
-            reward.apply(&mut loadout, &mut player);
+            let got = reward.apply(&mut loadout, &mut player, ship.hull.platforms());
             let praise = if remaining_share >= FAST_SHARE { "Blitzschnell!" } else { "Sauber gerechnet!" };
-            (GOOD, format!("{praise} +{points} Punkte · {}", reward.name()))
+            (GOOD, format!("{praise} +{points} Punkte · {}", got.name()))
         }
         (Purpose::Freight(reward), Outcome::TimedOut) => {
-            reward.apply(&mut loadout, &mut player);
-            (OKAY, format!("Zeit um – {} gibt's trotzdem. Nächstes Mal schneller!", reward.name()))
+            let got = reward.apply(&mut loadout, &mut player, ship.hull.platforms());
+            (OKAY, format!("Zeit um – {} gibt's trotzdem. Nächstes Mal schneller!", got.name()))
         }
         (Purpose::Freight(_), Outcome::Wrong) => {
             // Ein Fehler kostet etwas Schild, aber nie das Schiff.

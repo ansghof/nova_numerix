@@ -111,12 +111,22 @@ Raketen dazu = Laser + Raketen.
 Anbauteile sind am Schiff sichtbar: Waffenplattformen, Drohnen, Schildgenerator,
 Panzerplatten, Nachbrenner.
 
-| Rumpf | Plattformen |
-|---|---|
-| Spatz | 2 (Start) |
-| Falke | 3 |
-| Kondor | 4 |
-| Phönix | 5 |
+| Rumpf | Waffenplätze | Schild | Preis | Besonderheit |
+|---|---|---|---|---|
+| Spatz | 2 | 100 | Start | |
+| Falke | 3 | 120 | 3000 | Entenflügel |
+| Kondor | 4 | 140 | 5000 | Doppelflügel |
+| Phönix | 4 | 160 | 8000 | Schildgenerator: lädt im Flug 0,4 Schild je Sekunde nach |
+
+Ein Waffenplatz trägt ein Waffensystem: Laser (immer an Bord), Raketen, Seitenkanonen,
+Drohnen. Ausbauen geht immer, ein neues System braucht einen freien Platz. Auf dem Spatz
+heißt das: Laser plus eine weitere Waffe, also eine echte Entscheidung. Frachtdrohnen bringen
+keine neuen Systeme, wenn kein Platz frei ist; wird es unterwegs eng, gibt es stattdessen eine
+Reparatur.
+
+**Panzerung** (3 Stufen, 700/1400/2100): jede Stufe hält 15 % jedes Treffers durch Schüsse und
+Zusammenstöße ab. Der Schildabzug bei falschen Antworten bleibt gleich. Die Platten liegen als
+Kranz um den Rumpf, ein Ring je Stufe. Rumpf und Panzerung bleiben beim Verlust des Schiffs.
 
 ### Tod und Fortschritt (Roguelite)
 
@@ -192,7 +202,9 @@ Zeitlupen-Chips (+50 % Zeit für X Aufgaben), Rümpfe, Lackierungen.
   fliegen über und unter dem Schiff mit und feuern mit). Frachtdrohnen bringen die neuen
   Waffen ebenfalls, sobald Quibbo sie führt; Drohnen nur selten.
 - Bedienung in Menü und Werft auch mit der Maus: Zeigen wählt, Klicken bestätigt.
-- Noch offen: Panzerung, neue Rümpfe.
+- Rümpfe und Panzerung siehe oben. Im Laden: Panzerung und nächster Rumpf; Waffen ohne
+  freien Platz stehen mit Hinweis da. Beim Verhandeln zeigt der Laden nur die Ware, um die es
+  geht.
 
 ### Umgesetzt (Gegner je Level)
 - Neonnebel: Wackler-Schlange, Pfeile in V-Formation, Zange, Sturzflug, Kreisel-Ring.

@@ -15,6 +15,7 @@ use crate::AppState;
 use crate::hud::Score;
 use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted, begin_level};
 use crate::player::{Loadout, MAX_HEALTH, Player};
+use crate::ship::{Hull, Ship};
 use crate::shipyard::Credits;
 use crate::superweapon::SuperWeapon;
 use crate::task::{SlowChips, Topic};
@@ -146,6 +147,10 @@ pub struct SaveData {
     side: u8,
     #[serde(default)]
     drones: u8,
+    #[serde(default)]
+    hull: u8,
+    #[serde(default)]
+    armor: u8,
     health: f32,
     bought_charges: u8,
     slow_chips: u32,
@@ -170,6 +175,8 @@ impl SaveData {
             missiles: loadout.missiles,
             side: loadout.side,
             drones: loadout.drones,
+            hull: 0,
+            armor: 0,
             health: MAX_HEALTH,
             bought_charges: 0,
             slow_chips: 0,
@@ -188,6 +195,7 @@ pub struct GameState<'w, 's> {
     name: ResMut<'w, ShipName>,
     credits: ResMut<'w, Credits>,
     loadout: ResMut<'w, Loadout>,
+    ship: ResMut<'w, Ship>,
     weapon: ResMut<'w, SuperWeapon>,
     chips: ResMut<'w, SlowChips>,
     campaign: ResMut<'w, Campaign>,
@@ -214,6 +222,8 @@ impl GameState<'_, '_> {
             missiles: self.loadout.missiles,
             side: self.loadout.side,
             drones: self.loadout.drones,
+            hull: self.ship.hull.index(),
+            armor: self.ship.armor,
             health: self.player.health,
             bought_charges: self.weapon.bought,
             slow_chips: self.chips.0,
@@ -229,6 +239,9 @@ impl GameState<'_, '_> {
         self.name.0 = data.ship_name;
         *self.credits = Credits { bank: data.credits, flight: 0 };
         *self.loadout = Loadout { laser: data.laser, missiles: data.missiles, side: data.side, drones: data.drones };
+        *self.ship = Ship { hull: Hull::from_index(data.hull), armor: data.armor.min(crate::ship::MAX_ARMOR) };
+        // Die Schildgrenze passt sich gleich an den Rumpf an; bis dahin nicht kappen.
+        self.player.max_health = self.ship.hull.max_health();
         self.player.health = data.health;
         self.player.invulnerable = 0.0;
         self.weapon.bought = data.bought_charges;

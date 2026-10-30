@@ -188,7 +188,7 @@ fn hit_player(
             // Prallt an der Blase ab und zerplatzt.
             particles.sparks(&mut rng, pos, CYAN, 8, 160.0);
         } else {
-            player.health -= shot.damage;
+            player.hurt(shot.damage);
             particles.sparks(&mut rng, pos, ORANGE, 14, 260.0);
         }
         commands.entity(entity).despawn();

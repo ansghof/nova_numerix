@@ -14,6 +14,8 @@
 //! - `level N`: Level N starten
 //! - `waffen L R S D`: Laser, Raketen, Seitenkanonen und Drohnen auf diese Stufen setzen
 //! - `besiegt N`: so viele Bosse gelten als besiegt (schaltet Ware im Laden frei)
+//! - `rumpf N`: Rumpf N (1 Spatz … 4 Phönix) einbauen
+//! - `panzerung N`: Panzerung auf Stufe N setzen
 //! - `feuer an` / `feuer aus`: Leertaste dauerhaft halten
 //! - `zielen an` / `zielen aus`: das Schiff auf die richtige Bossplatte oder den offenen Kern ausrichten
 //! - `bild NAME`: Screenshot nach `target/test-NAME.png`
@@ -38,6 +40,7 @@ use crate::boss::{Boss, BossCore, Plate};
 use crate::enemy::WaveCleared;
 use crate::level::{Campaign, LEVEL_LENGTH, LEVELS, LevelProgress, LevelStarted};
 use crate::player::{Loadout, Player};
+use crate::ship::{Hull, Ship};
 use crate::superweapon::FireSuper;
 use crate::task::ActiveTask;
 
@@ -126,8 +129,7 @@ fn play_script(
     mut typed: MessageWriter<bevy::input::keyboard::KeyboardInput>,
     mut pointer: MessageWriter<PointerInput>,
     mut started: MessageWriter<LevelStarted>,
-    mut loadout: ResMut<Loadout>,
-    mut campaign: ResMut<Campaign>,
+    (mut loadout, mut campaign, mut ship): (ResMut<Loadout>, ResMut<Campaign>, ResMut<Ship>),
     window: Single<(Entity, &Window), With<PrimaryWindow>>,
 ) {
     let (window, size) = (window.0, window.1.size());
@@ -192,6 +194,10 @@ fn play_script(
             }
         } else if let Some(n) = action.strip_prefix("besiegt ").and_then(|n| n.parse().ok()) {
             campaign.beaten = n;
+        } else if let Some(n) = action.strip_prefix("rumpf ").and_then(|n| n.parse::<u8>().ok()) {
+            ship.hull = Hull::from_index(n.saturating_sub(1));
+        } else if let Some(n) = action.strip_prefix("panzerung ").and_then(|n| n.parse().ok()) {
+            ship.armor = n;
         } else if action == "sieg" {
             if let Some(boss) = &mut boss {
                 boss.health = 0.0;

@@ -4,7 +4,8 @@
 use bevy::prelude::*;
 
 use crate::level::{CHECKPOINT_SHARE, LevelProgress};
-use crate::player::{Loadout, MAX_HEALTH, Player};
+use crate::player::{Loadout, Player};
+use crate::ship::Ship;
 use crate::save::ShipName;
 use crate::superweapon::{CHARGES_PER_LEVEL, SuperWeapon};
 
@@ -153,7 +154,7 @@ fn update_hud(
     mut score_text: Single<&mut Text, (With<ScoreText>, Without<WeaponText>)>,
     mut weapon_text: Single<&mut Text, (With<WeaponText>, Without<ScoreText>)>,
 ) {
-    let share = (player.health / MAX_HEALTH).clamp(0.0, 1.0);
+    let share = (player.health / player.max_health).clamp(0.0, 1.0);
     fill.0.width = Val::Percent(share * 100.0);
     fill.1.0 = if share > 0.3 { SHIELD } else { SHIELD_LOW };
     score_text.0 = format!("{} Punkte", score.0);
@@ -184,8 +185,8 @@ fn update_progress(
     }
 }
 
-fn update_ship_name(name: Res<ShipName>, mut text: Single<&mut Text, With<ShipNameText>>) {
-    if name.is_changed() || text.0.is_empty() {
-        text.0 = name.0.clone();
+fn update_ship_name(name: Res<ShipName>, ship: Res<Ship>, mut text: Single<&mut Text, With<ShipNameText>>) {
+    if name.is_changed() || ship.is_changed() || text.0.is_empty() {
+        text.0 = format!("{} · {}", name.0, ship.describe());
     }
 }

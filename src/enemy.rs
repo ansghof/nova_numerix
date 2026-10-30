@@ -13,6 +13,7 @@ use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Loadout, Player};
 use crate::rng::Rng;
 use crate::level::{Campaign, CurrentLevel, LevelProgress, LevelStarted};
+use crate::ship::Ship;
 use crate::task::Reward;
 use crate::shipyard::Credits;
 use crate::shots::{Targetable, spawn_enemy_shot};
@@ -363,6 +364,7 @@ fn spawn_waves(
     current: Res<CurrentLevel>,
     campaign: Res<Campaign>,
     loadout: Res<Loadout>,
+    ship: Res<Ship>,
     player: Single<&Player>,
 ) {
     let dt = time.delta_secs();
@@ -374,7 +376,7 @@ fn spawn_waves(
         spawner.freighter = rng.range(9.0, 12.0);
         let y = rng.range(-180.0, 180.0);
         let mut freighter = Enemy::new(EnemyKind::Freighter, &mut rng);
-        let cargo = Reward::choose(&mut rng, &loadout, player.health, campaign.beaten);
+        let cargo = Reward::choose(&mut rng, &loadout, &player, ship.hull.platforms(), campaign.beaten);
         freighter.cargo = Some(cargo);
         let pos = Vec2::new(spawn_x, y);
         let entity = spawn_enemy(&mut commands, freighter, pos);
@@ -595,7 +597,7 @@ fn ram_player(
                 transform.translation = (center + away * min).extend(transform.translation.z);
             }
         } else if offset.length() < HIT_RADIUS + hitbox.0 && enemy.health > 0.0 {
-            player.health -= RAM_DAMAGE;
+            player.hurt(RAM_DAMAGE);
             enemy.health = 0.0;
         }
     }

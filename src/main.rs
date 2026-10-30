@@ -12,6 +12,7 @@ mod player;
 mod quibbo;
 mod rng;
 mod save;
+mod ship;
 mod shipyard;
 mod shots;
 mod superweapon;
@@ -130,10 +131,8 @@ fn main() {
             boss::BossPlugin,
             hud::HudPlugin,
             menu::MenuPlugin,
-            shipyard::ShipyardPlugin,
-            save::SavePlugin,
-            quibbo::QuibboPlugin,
-        ));
+        ))
+        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);
     app.run();

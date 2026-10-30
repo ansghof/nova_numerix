@@ -9,11 +9,13 @@ use crate::boss::BossState;
 use crate::level::LevelStarted;
 use crate::shipyard::Credits;
 use crate::neon::{CYAN, GREEN, Shape, WHITE, polygon, scaled};
+use crate::ship::Hull;
 use crate::particles::Particles;
 use crate::rng::Rng;
 use crate::shots;
 use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield, Shake};
 
+/// Schild des Startrumpfs; größere Rümpfe tragen mehr, siehe [`Player::max_health`].
 pub const MAX_HEALTH: f32 = 100.0;
 pub const MAX_LEVEL: u8 = 5;
 pub const MAX_SIDE: u8 = 3;
@@ -70,6 +72,10 @@ impl Plugin for PlayerPlugin {
 #[derive(Component)]
 pub struct Player {
     pub health: f32,
+    /// Höchster Schild; hängt vom Rumpf ab.
+    pub max_health: f32,
+    /// Anteil eines Treffers, der durch die Panzerung kommt.
+    pub armor: f32,
     /// Restliche Unverwundbarkeit in echten Sekunden.
     pub invulnerable: f32,
     laser_cooldown: f32,
@@ -79,6 +85,11 @@ pub struct Player {
 }
 
 impl Player {
+    /// Ein Treffer durch Schuss oder Zusammenstoß; die Panzerung schluckt einen Teil.
+    pub fn hurt(&mut self, amount: f32) {
+        self.health -= amount * self.armor;
+    }
+
     /// Während einer Aufgabe, in der Rückkehr-Phase und solange das Schiff blinkt, kann ihm
     /// nichts passieren.
     pub fn protected(&self, phase: GamePhase) -> bool {
@@ -103,6 +114,17 @@ impl Default for Loadout {
 }
 
 impl Loadout {
+    /// Wie viele Waffensysteme an Bord sind; der Laser ist immer dabei.
+    pub fn systems(&self) -> usize {
+        1 + [self.missiles, self.side, self.drones].iter().filter(|level| **level > 0).count()
+    }
+
+    /// Ob ein Waffensystem dieser Stufe noch dazupasst: ausbauen geht immer, ein neues System
+    /// braucht einen freien Waffenplatz am Rumpf.
+    pub fn fits(&self, current: u8, platforms: usize) -> bool {
+        current > 0 || self.systems() < platforms
+    }
+
     /// Kurzbeschreibung für HUD, Werft und Siegerbildschirm.
     pub fn describe(&self) -> String {
         let mut text = format!("Laser {}", self.laser);
@@ -132,33 +154,19 @@ fn drone_shape() -> Shape {
 #[derive(Component)]
 struct WeaponMounts;
 
-fn ship_shape() -> Shape {
-    Shape::new(CYAN)
-        .closed(&[
-            Vec2::new(36.0, 0.0),
-            Vec2::new(-6.0, 12.0),
-            Vec2::new(-20.0, 22.0),
-            Vec2::new(-16.0, 7.0),
-            Vec2::new(-24.0, 0.0),
-            Vec2::new(-16.0, -7.0),
-            Vec2::new(-20.0, -22.0),
-            Vec2::new(-6.0, -12.0),
-        ])
-        // Cockpit
-        .closed(&[Vec2::new(16.0, 0.0), Vec2::new(4.0, 4.0), Vec2::new(-2.0, 0.0), Vec2::new(4.0, -4.0)])
-}
-
 fn spawn_player(mut commands: Commands, field: Res<Playfield>) {
     commands.spawn((
         Player {
             health: MAX_HEALTH,
+            max_health: MAX_HEALTH,
+            armor: 1.0,
             invulnerable: 0.0,
             laser_cooldown: 0.0,
             missile_cooldown: 0.0,
             side_cooldown: 0.0,
             drone_cooldown: 0.0,
         },
-        ship_shape(),
+        Hull::Spatz.shape(),
         Transform::from_translation(start(&field)),
     ));
 }
@@ -406,7 +414,8 @@ fn draw_bubble(
     gizmos.circle_2d(pos, BUBBLE_RADIUS - 5.0, scaled(WHITE, pulse * 0.15)).resolution(64);
 }
 
-/// Wird das Schiff zerstört, gehen alle Waffen verloren; ein neues startet links.
+/// Wird das Schiff zerstört, gehen alle Waffen verloren; ein neues startet links. Rumpf und
+/// Panzerung bleiben.
 fn check_death(
     mut loadout: ResMut<Loadout>,
     mut particles: ResMut<Particles>,
@@ -425,7 +434,7 @@ fn check_death(
     shake.0 = 12.0;
     *loadout = Loadout::default();
     credits.flight = 0;
-    player.health = MAX_HEALTH;
+    player.health = player.max_health;
     player.invulnerable = RESPAWN_INVULNERABLE;
     transform.translation = start(&field);
 }
