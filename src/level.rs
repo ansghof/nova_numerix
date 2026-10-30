@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 
+use crate::enemy::Formation;
 use crate::neon::{MAGENTA, VIOLET};
 use crate::save::Mastery;
 use crate::task::{FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
@@ -35,6 +36,8 @@ pub struct LevelDef {
     pub grid: LinearRgba,
     pub boss: BossDef,
     pub make_topic: fn() -> Box<dyn TaskGenerator>,
+    /// Aus diesen Formationen wird jede Welle gelost; was öfter dasteht, kommt öfter.
+    pub formations: &'static [Formation],
 }
 
 pub struct BossDef {
@@ -59,6 +62,7 @@ pub const LEVELS: [LevelDef; 2] = [
         grid: LinearRgba::rgb(0.35, 0.08, 0.6),
         boss: BossDef { name: "Der Wächter", color: MAGENTA, cube: false },
         make_topic: small_times_table,
+        formations: &[Formation::Snake, Formation::Arrow, Formation::Pincer, Formation::Dive, Formation::Ring],
     },
     LevelDef {
         world: "Gitterstation",
@@ -66,6 +70,17 @@ pub const LEVELS: [LevelDef; 2] = [
         grid: LinearRgba::rgb(0.05, 0.45, 0.4),
         boss: BossDef { name: "Der Kubus", color: VIOLET, cube: true },
         make_topic: squares,
+        // Die Station hat eigene Verteidiger; von den alten Bekannten kommen nur noch wenige.
+        formations: &[
+            Formation::Turrets,
+            Formation::Splitters,
+            Formation::Seekers,
+            Formation::Turrets,
+            Formation::Splitters,
+            Formation::Seekers,
+            Formation::Arrow,
+            Formation::Ring,
+        ],
     },
 ];
 
@@ -79,15 +94,17 @@ impl CurrentLevel {
     }
 }
 
-/// Wie viele Level freigeschaltet sind.
+/// Wie viele Level freigeschaltet und wie viele Bosse schon besiegt sind. Mit jedem besiegten
+/// Boss bekommt Quibbo neue Ware.
 #[derive(Resource)]
 pub struct Campaign {
     pub unlocked: usize,
+    pub beaten: usize,
 }
 
 impl Default for Campaign {
     fn default() -> Self {
-        Self { unlocked: 1 }
+        Self { unlocked: 1, beaten: 0 }
     }
 }
 

@@ -63,7 +63,9 @@ beim Öffnen zur Seite gedrückt. Niemand stirbt, weil er gerade rechnet.
 
 ### Frachtdrohnen
 Gold leuchtende Frachtdrohnen fliegen zwischen den Wellen. Abschuss → Aufgaben-Popup →
-Powerup.
+Powerup. Was sie geladen haben, steht schon beim Anflug fest: Ein Zeichen in der Mitte und
+ein Schild darunter zeigen es (Laser, Raketen, Reparatur, Seitenkanone, Drohne). So kann man
+gezielt jagen, was man braucht.
 
 ### Superwaffe (3 pro Level)
 Schaden = Minimum + Restzeit-Anteil × (Maximum − Minimum), mit drei sichtbaren Stufen
@@ -184,7 +186,20 @@ Zeitlupen-Chips (+50 % Zeit für X Aufgaben), Rümpfe, Lackierungen.
   Gespeichert werden Schiffsname, Credits, Waffen, Schild, gekaufte Extras, freigeschaltete
   Level, Punkte und der Lernstand je Thema. Wer im Flug beendet, startet beim Laden wieder
   in der Werft vor diesem Flug. Dateien liegen unter %APPDATA%/NovaNumerix.
+- Neue Ware mit jedem besiegten Boss; bis dahin steht sie mit Hinweis im Laden:
+  nach Boss 1 Seitenkanonen (500, dann 450 × neue Stufe, max. 3: schräg nach oben und
+  unten, gut gegen Geschütze am Rand), nach Boss 2 Begleitdrohnen (900 und 1800, max. 2:
+  fliegen über und unter dem Schiff mit und feuern mit). Frachtdrohnen bringen die neuen
+  Waffen ebenfalls, sobald Quibbo sie führt; Drohnen nur selten.
+- Bedienung in Menü und Werft auch mit der Maus: Zeigen wählt, Klicken bestätigt.
 - Noch offen: Panzerung, neue Rümpfe.
+
+### Umgesetzt (Gegner je Level)
+- Neonnebel: Wackler-Schlange, Pfeile in V-Formation, Zange, Sturzflug, Kreisel-Ring.
+- Gitterstation: Geschütze, die auf dem Gitter an Boden und Decke vorbeiziehen und
+  Dreiergarben feuern; Teiler, die beim Abschuss in zwei Splitter zerfallen (die Welle ist erst
+  mit den Splittern ausgelöscht); Sucher, die auf die Höhe des Schiffs nachsteuern, bis es
+  vorbei ist. Dazu selten Pfeile und Kreisel.
 
 ## Level
 

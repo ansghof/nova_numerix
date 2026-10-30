@@ -12,7 +12,7 @@ use bevy::prelude::*;
 
 use crate::AppState;
 use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted};
-use crate::player::{Loadout, MAX_HEALTH, MAX_LEVEL, Player};
+use crate::player::{Loadout, MAX_DRONES, MAX_HEALTH, MAX_LEVEL, MAX_SIDE, Player};
 use crate::quibbo::QuibboArt;
 use crate::rng::Rng;
 use crate::superweapon::SuperWeapon;
@@ -136,19 +136,63 @@ enum Item {
     Repair,
     Laser,
     Missiles,
+    Side,
+    Drone,
     SuperCharge,
     SlowChip,
 }
 
-const ITEMS: [Item; 5] = [Item::Repair, Item::Laser, Item::Missiles, Item::SuperCharge, Item::SlowChip];
+const ITEMS: [Item; 7] = [Item::Repair, Item::Laser, Item::Missiles, Item::Side, Item::Drone, Item::SuperCharge, Item::SlowChip];
+
+/// Nach so vielen besiegten Bossen führt Quibbo Seitenkanonen und Begleitdrohnen. Bis dahin
+/// stehen sie mit einem Hinweis im Laden, damit man weiß, worauf man hinarbeitet.
+pub const SIDE_AFTER: usize = 1;
+pub const DRONES_AFTER: usize = 2;
+const SIDE_PRICE: u32 = 500;
+const SIDE_PRICE_PER_LEVEL: u32 = 450;
+const DRONE_PRICE: u32 = 900;
+
+/// Was nach dem soundsovielten besiegten Boss neu in den Laden kommt.
+pub fn new_goods(beaten: usize) -> Option<&'static str> {
+    match beaten {
+        SIDE_AFTER => Some("Seitenkanonen"),
+        DRONES_AFTER => Some("Begleitdrohnen"),
+        _ => None,
+    }
+}
+
+/// Hinweis für Ware, die erst nach einem bestimmten Boss zu haben ist.
+fn locked(after: usize) -> String {
+    // „Der Kubus“ mitten im Satz klein: „sobald der Kubus besiegt ist“.
+    let boss = LEVELS[after - 1].boss.name.replacen("Der ", "der ", 1);
+    format!("kommt, sobald {boss} besiegt ist")
+}
 
 /// Was der Shop über das Schiff wissen muss, um Preise und Angebote zu bestimmen.
 struct ShipState {
     health: f32,
     laser: u8,
     missiles: u8,
+    side: u8,
+    drones: u8,
     bought_charges: u8,
     chips: u32,
+    beaten: usize,
+}
+
+impl ShipState {
+    fn new(player: &Player, loadout: &Loadout, weapon: &SuperWeapon, chips: &SlowChips, campaign: &Campaign) -> Self {
+        Self {
+            health: player.health,
+            laser: loadout.laser,
+            missiles: loadout.missiles,
+            side: loadout.side,
+            drones: loadout.drones,
+            bought_charges: weapon.bought,
+            chips: chips.0,
+            beaten: campaign.beaten,
+        }
+    }
 }
 
 impl Item {
@@ -175,6 +219,25 @@ impl Item {
                 };
                 let name = if ship.missiles == 0 { "Raketenwerfer".to_string() } else { format!("Raketen Stufe {}", ship.missiles + 1) };
                 (name, "zielsuchend, feuern mit dem Laser".into(), price)
+            }
+            Item::Side if ship.beaten < SIDE_AFTER => ("Seitenkanonen".into(), locked(SIDE_AFTER), None),
+            Item::Side => {
+                let price = match ship.side {
+                    0 => Some(SIDE_PRICE),
+                    s if s < MAX_SIDE => Some(SIDE_PRICE_PER_LEVEL * (s as u32 + 1)),
+                    _ => None,
+                };
+                let name = if ship.side == 0 { "Seitenkanonen".to_string() } else { format!("Seitenkanonen Stufe {}", ship.side + 1) };
+                (name, "feuern schräg nach oben und unten, gut gegen Geschütze".into(), price)
+            }
+            Item::Drone if ship.beaten < DRONES_AFTER => ("Begleitdrohne".into(), locked(DRONES_AFTER), None),
+            Item::Drone => {
+                let price = (ship.drones < MAX_DRONES).then_some(DRONE_PRICE * (ship.drones as u32 + 1));
+                (
+                    format!("Begleitdrohne {}/{MAX_DRONES}", ship.drones + 1),
+                    "fliegt neben dem Schiff und feuert mit".into(),
+                    price,
+                )
             }
             Item::SuperCharge => {
                 let price = (ship.bought_charges < MAX_BOUGHT_CHARGES).then_some(SUPER_PRICE);
@@ -464,13 +527,7 @@ fn update(
             }
         }
         View::Shop { selected, haggle, feedback, .. } => {
-            let ship = ShipState {
-                health: player.health,
-                laser: loadout.laser,
-                missiles: loadout.missiles,
-                bought_charges: weapon.bought,
-                chips: chips.0,
-            };
+            let ship = ShipState::new(&player, &loadout, &weapon, &chips, &campaign);
             if let Some(h) = haggle {
                 if let Some((_, _, remaining)) = &mut h.result {
                     *remaining -= dt;
@@ -550,6 +607,8 @@ fn update(
                                     Item::Repair => player.health = (player.health + REPAIR_STEP).min(MAX_HEALTH),
                                     Item::Laser => loadout.laser += 1,
                                     Item::Missiles => loadout.missiles += 1,
+                                    Item::Side => loadout.side += 1,
+                                    Item::Drone => loadout.drones += 1,
                                     Item::SuperCharge => weapon.bought += 1,
                                     Item::SlowChip => chips.0 += CHIPS_PER_PACK,
                                 }
@@ -691,6 +750,7 @@ fn render(
     weapon: Res<SuperWeapon>,
     chips: Res<SlowChips>,
     player: Single<&Player>,
+    campaign: Res<Campaign>,
     content: Single<Entity, With<Content>>,
     mut portrait: Single<(&mut Node, &mut ImageNode), With<QuibboPortrait>>,
 ) {
@@ -706,23 +766,14 @@ fn render(
     };
     let content = *content;
     commands.entity(content).despawn_related::<Children>();
-    let ship = ShipState {
-        health: player.health,
-        laser: loadout.laser,
-        missiles: loadout.missiles,
-        bought_charges: weapon.bought,
-        chips: chips.0,
-    };
+    let ship = ShipState::new(&player, &loadout, &weapon, &chips, &campaign);
     let c = &mut commands;
 
     match &shipyard.view {
         View::Hub { selected, level } => {
             text(c, content, "Werft", FRAME, 36.0);
             text(c, content, format!("{} Credits", credits.bank), OKAY, 24.0);
-            let mut weapons = format!("Laser {}", ship.laser);
-            if ship.missiles > 0 {
-                weapons += &format!(" · Raketen {}", ship.missiles);
-            }
+            let weapons = loadout.describe();
             text(c, content, format!("Schild {:.0}/{MAX_HEALTH:.0} · {weapons}", ship.health), TEXT, 18.0);
             let left = FULL_TASKS.saturating_sub(training.solved);
             let options = [

@@ -157,11 +157,7 @@ fn update_hud(
     fill.0.width = Val::Percent(share * 100.0);
     fill.1.0 = if share > 0.3 { SHIELD } else { SHIELD_LOW };
     score_text.0 = format!("{} Punkte", score.0);
-    let mut weapons = format!("Laser {}", loadout.laser);
-    if loadout.missiles > 0 {
-        weapons += &format!(" · Raketen {}", loadout.missiles);
-    }
-    weapon_text.0 = weapons;
+    weapon_text.0 = loadout.describe();
 }
 
 fn update_charges(weapon: Res<SuperWeapon>, mut pips: Query<(&ChargePip, &mut BackgroundColor)>) {

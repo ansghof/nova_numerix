@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 
 use crate::enemy::{Enemy, Hitbox};
-use crate::neon::{CYAN, ORANGE, Shape, WHITE, polygon};
+use crate::neon::{CYAN, ORANGE, Shape, WHITE, polygon, scaled};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Player};
 use crate::rng::Rng;
@@ -11,6 +11,7 @@ use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield};
 
 const LASER_SPEED: f32 = 1100.0;
 const MISSILE_SPEED: f32 = 520.0;
+const SIDE_SHOT_SPEED: f32 = 900.0;
 /// So schnell dreht eine Rakete zum Ziel, in Bogenmaß pro Sekunde.
 const MISSILE_TURN: f32 = 5.0;
 const ENEMY_SHOT_DAMAGE: f32 = 10.0;
@@ -50,11 +51,21 @@ fn oriented(pos: Vec2, dir: Vec2) -> Transform {
     Transform::from_translation(pos.extend(0.5)).with_rotation(Quat::from_rotation_z(dir.to_angle()))
 }
 
-pub fn spawn_laser(commands: &mut Commands, pos: Vec2, dir: Vec2) {
+pub fn spawn_laser(commands: &mut Commands, pos: Vec2, dir: Vec2, color: LinearRgba) {
     commands.spawn((
         Shot { vel: dir * LASER_SPEED, damage: 1.0, radius: 6.0 },
         Friendly,
-        Shape::new(WHITE).open(&[Vec2::new(-12.0, 0.0), Vec2::new(12.0, 0.0)]),
+        Shape::new(color).open(&[Vec2::new(-12.0, 0.0), Vec2::new(12.0, 0.0)]),
+        oriented(pos, dir),
+    ));
+}
+
+/// Kurze, kräftige Bolzen der Seitenkanonen.
+pub fn spawn_side_shot(commands: &mut Commands, pos: Vec2, dir: Vec2) {
+    commands.spawn((
+        Shot { vel: dir * SIDE_SHOT_SPEED, damage: 1.0, radius: 6.0 },
+        Friendly,
+        Shape::new(scaled(CYAN, 1.2)).open(&[Vec2::new(-6.0, 0.0), Vec2::new(6.0, 0.0)]).closed(&polygon(3, 3.0, 0.0)),
         oriented(pos, dir),
     ));
 }

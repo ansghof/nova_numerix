@@ -12,6 +12,8 @@ pub const ORANGE: LinearRgba = LinearRgba::rgb(4.0, 1.3, 0.2);
 pub const GOLD: LinearRgba = LinearRgba::rgb(3.8, 2.6, 0.4);
 pub const VIOLET: LinearRgba = LinearRgba::rgb(1.8, 0.6, 4.0);
 pub const GREEN: LinearRgba = LinearRgba::rgb(0.6, 3.6, 1.0);
+pub const LIME: LinearRgba = LinearRgba::rgb(2.0, 3.6, 0.3);
+pub const PINK: LinearRgba = LinearRgba::rgb(3.8, 0.9, 1.9);
 
 pub struct NeonPlugin;
 

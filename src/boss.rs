@@ -11,7 +11,7 @@ use bevy::prelude::*;
 
 use crate::hud::Score;
 use crate::level::{BossDef, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats};
-use crate::shipyard::Credits;
+use crate::shipyard::{Credits, new_goods};
 use crate::neon::{GOLD, GREEN, MAGENTA, ORANGE, RED, Shape, WHITE, polygon, scaled};
 use crate::particles::Particles;
 use crate::player::{Loadout, Player};
@@ -660,6 +660,7 @@ fn spawn_victory(
     stats: &LevelStats,
     loadout: &Loadout,
     unlocked: Option<&LevelDef>,
+    goods: Option<&str>,
 ) {
     let root = commands
         .spawn((
@@ -692,10 +693,7 @@ fn spawn_victory(
             ChildOf(root),
         ))
         .id();
-    let mut weapons = format!("Laser {}", loadout.laser);
-    if loadout.missiles > 0 {
-        weapons += &format!(" · Raketen {}", loadout.missiles);
-    }
+    let weapons = loadout.describe();
     let lines = [
         ("Level geschafft!".to_string(), GOOD, 44.0),
         (format!("{name} ist zerstört."), TEXT, 20.0),
@@ -715,6 +713,10 @@ fn spawn_victory(
     }
     if let Some(level) = unlocked {
         let message = format!("Neues Level freigeschaltet: {} · {}", level.world, level.topic);
+        commands.spawn((Text::new(message), TextColor(GOOD), font(18.0), ChildOf(panel)));
+    }
+    if let Some(goods) = goods {
+        let message = format!("Quibbo hat neue Ware im Laden: {goods}");
         commands.spawn((Text::new(message), TextColor(GOOD), font(18.0), ChildOf(panel)));
     }
     commands.spawn((Text::new("Enter: zur Werft"), TextColor(Color::srgb(0.55, 0.62, 0.75)), font(16.0), ChildOf(panel)));
@@ -751,7 +753,10 @@ fn victory(
         let unlocked_before = campaign.unlocked;
         campaign.unlocked = campaign.unlocked.max((current.0 + 2).min(LEVELS.len()));
         let unlocked = (campaign.unlocked > unlocked_before).then(|| &LEVELS[campaign.unlocked - 1]);
-        spawn_victory(&mut commands, current.def().boss.name, score.0, earned, &stats, &loadout, unlocked);
+        let beaten_before = campaign.beaten;
+        campaign.beaten = campaign.beaten.max(current.0 + 1);
+        let goods = (campaign.beaten > beaten_before).then(|| new_goods(campaign.beaten)).flatten();
+        spawn_victory(&mut commands, current.def().boss.name, score.0, earned, &stats, &loadout, unlocked, goods);
     }
     // Nach dem großen Knall die Welt anhalten, bis es weitergeht.
     *waited += real.delta_secs();

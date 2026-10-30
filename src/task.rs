@@ -13,7 +13,9 @@ use crate::enemy::{FreightDestroyed, WaveCleared};
 use crate::hud::Score;
 use crate::level::{LevelStarted, LevelStats};
 use crate::shipyard::Credits;
-use crate::player::{Loadout, MAX_HEALTH, MAX_LEVEL, Player};
+use crate::neon::{CYAN, GREEN, MAGENTA, Shape, VIOLET, WHITE, polygon};
+use crate::player::{Loadout, MAX_DRONES, MAX_HEALTH, MAX_LEVEL, MAX_SIDE, Player};
+use crate::shipyard::{DRONES_AFTER, SIDE_AFTER};
 use crate::rng::Rng;
 use crate::superweapon::FireSuper;
 
@@ -268,8 +270,8 @@ pub struct Topic(pub Box<dyn TaskGenerator>);
 /// Aufgaben, die starten, sobald gerade keine läuft.
 #[derive(Resource, Default)]
 pub struct PendingTasks {
-    /// Abgeschossene Frachtdrohnen.
-    freight: u32,
+    /// Ladung abgeschossener Frachtdrohnen.
+    freight: Vec<Reward>,
     /// Der Spieler will die Superwaffe zünden.
     pub super_weapon: bool,
     /// Größen ausgelöschter Wellen, deren Bonusaufgabe noch aussteht.
@@ -301,25 +303,90 @@ fn wave_points(size: u32, share: f32) -> u32 {
     (size as f32 * WAVE_POINTS_PER_ENEMY * (1.0 + 2.0 * share)).round() as u32
 }
 
-#[derive(Clone, Copy)]
-enum Reward {
+/// Was eine Frachtdrohne geladen hat. Steht schon beim Anflug fest und ist auf ihr zu sehen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Reward {
     Laser,
     Missiles,
     Repair,
+    Side,
+    Drone,
 }
 
 impl Reward {
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Laser => "Laser +1",
             Self::Missiles => "Raketen +1",
             Self::Repair => "Reparatur",
+            Self::Side => "Seitenkanone +1",
+            Self::Drone => "Begleitdrohne",
+        }
+    }
+
+    /// Kurzer Name für das Schild unter der Frachtdrohne.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Laser => "Laser",
+            Self::Missiles => "Raketen",
+            Self::Repair => "Reparatur",
+            Self::Side => "Seitenkanone",
+            Self::Drone => "Drohne",
+        }
+    }
+
+    pub fn color(self) -> LinearRgba {
+        match self {
+            Self::Laser => WHITE,
+            Self::Missiles => CYAN,
+            Self::Repair => GREEN,
+            Self::Side => VIOLET,
+            Self::Drone => MAGENTA,
+        }
+    }
+
+    /// Das Zeichen im Inneren der Frachtdrohne.
+    pub fn icon(self) -> Shape {
+        let shape = Shape::new(self.color());
+        match self {
+            // Drei Strahlen
+            Self::Laser => shape
+                .open(&[Vec2::new(-8.0, 5.0), Vec2::new(8.0, 5.0)])
+                .open(&[Vec2::new(-8.0, 0.0), Vec2::new(8.0, 0.0)])
+                .open(&[Vec2::new(-8.0, -5.0), Vec2::new(8.0, -5.0)]),
+            // Eine Rakete
+            Self::Missiles => shape
+                .closed(&[Vec2::new(9.0, 0.0), Vec2::new(-5.0, 5.0), Vec2::new(-5.0, -5.0)])
+                .open(&[Vec2::new(-5.0, 0.0), Vec2::new(-10.0, 0.0)]),
+            // Ein Pluszeichen
+            Self::Repair => shape
+                .closed(&[
+                    Vec2::new(-3.0, 9.0),
+                    Vec2::new(3.0, 9.0),
+                    Vec2::new(3.0, 3.0),
+                    Vec2::new(9.0, 3.0),
+                    Vec2::new(9.0, -3.0),
+                    Vec2::new(3.0, -3.0),
+                    Vec2::new(3.0, -9.0),
+                    Vec2::new(-3.0, -9.0),
+                    Vec2::new(-3.0, -3.0),
+                    Vec2::new(-9.0, -3.0),
+                    Vec2::new(-9.0, 3.0),
+                    Vec2::new(-3.0, 3.0),
+                ]),
+            // Zwei schräge Rohre
+            Self::Side => shape
+                .open(&[Vec2::new(-7.0, 0.0), Vec2::new(7.0, 8.0)])
+                .open(&[Vec2::new(-7.0, 0.0), Vec2::new(7.0, -8.0)])
+                .closed(&polygon(4, 3.0, 0.0)),
+            // Eine kleine Drohne
+            Self::Drone => shape.closed(&polygon(4, 9.0, 0.0)).closed(&polygon(4, 3.5, std::f32::consts::FRAC_PI_4)),
         }
     }
 
     /// Eine Belohnung, die gerade etwas bringt: keine Waffe über der Höchststufe, Reparatur
-    /// bevorzugt bei angeschlagenem Schiff.
-    fn choose(rng: &mut Rng, loadout: &Loadout, health: f32) -> Self {
+    /// bevorzugt bei angeschlagenem Schiff. Neue Waffen gibt es, sobald Quibbo sie auch führt.
+    pub fn choose(rng: &mut Rng, loadout: &Loadout, health: f32, beaten: usize) -> Self {
         if health < MAX_HEALTH * 0.5 && rng.chance(0.6) {
             return Self::Repair;
         }
@@ -330,6 +397,13 @@ impl Reward {
         if loadout.missiles < MAX_LEVEL {
             options.push(Self::Missiles);
         }
+        if beaten >= SIDE_AFTER && loadout.side < MAX_SIDE {
+            options.push(Self::Side);
+        }
+        // Drohnen sind selten: nur jede dritte Wahl darf eine sein.
+        if beaten >= DRONES_AFTER && loadout.drones < MAX_DRONES && rng.chance(0.33) {
+            options.push(Self::Drone);
+        }
         if options.is_empty() { Self::Repair } else { options[rng.below(options.len())] }
     }
 
@@ -338,6 +412,8 @@ impl Reward {
             Self::Laser => loadout.laser = (loadout.laser + 1).min(MAX_LEVEL),
             Self::Missiles => loadout.missiles = (loadout.missiles + 1).min(MAX_LEVEL),
             Self::Repair => player.health = (player.health + REPAIR_AMOUNT).min(MAX_HEALTH),
+            Self::Side => loadout.side = (loadout.side + 1).min(MAX_SIDE),
+            Self::Drone => loadout.drones = (loadout.drones + 1).min(MAX_DRONES),
         }
     }
 }
@@ -397,7 +473,7 @@ fn count_freight(
     mut cleared: MessageReader<WaveCleared>,
     mut pending: ResMut<PendingTasks>,
 ) {
-    pending.freight += freight.read().count() as u32;
+    pending.freight.extend(freight.read().map(|f| f.0));
     for wave in cleared.read() {
         if pending.waves.len() < MAX_PENDING_WAVES {
             pending.waves.push(wave.size);
@@ -411,16 +487,13 @@ fn start_task(
     mut topic: ResMut<Topic>,
     mut rng: ResMut<Rng>,
     mut chips: ResMut<SlowChips>,
-    loadout: Res<Loadout>,
-    player: Single<&Player>,
     mut next: ResMut<NextState<GamePhase>>,
 ) {
     let (purpose, extra_time) = if pending.super_weapon {
         pending.super_weapon = false;
         (Purpose::Super { second_chance_used: false }, SUPER_EXTRA_TIME)
-    } else if pending.freight > 0 {
-        pending.freight -= 1;
-        (Purpose::Freight(Reward::choose(&mut rng, &loadout, player.health)), 0.0)
+    } else if !pending.freight.is_empty() {
+        (Purpose::Freight(pending.freight.remove(0)), 0.0)
     } else if !pending.waves.is_empty() {
         (Purpose::WaveBonus { size: pending.waves.remove(0) }, 0.0)
     } else {

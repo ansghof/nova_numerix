@@ -11,6 +11,9 @@
 //! - `tippe TEXT`: Text eintippen, etwa den Schiffsnamen
 //! - `maus X Y`: Mauszeiger auf X % der Breite und Y % der Höhe des Fensters
 //! - `klick`: linke Maustaste drücken und im nächsten Bild loslassen
+//! - `level N`: Level N starten
+//! - `waffen L R S D`: Laser, Raketen, Seitenkanonen und Drohnen auf diese Stufen setzen
+//! - `besiegt N`: so viele Bosse gelten als besiegt (schaltet Ware im Laden frei)
 //! - `feuer an` / `feuer aus`: Leertaste dauerhaft halten
 //! - `zielen an` / `zielen aus`: das Schiff auf die richtige Bossplatte oder den offenen Kern ausrichten
 //! - `bild NAME`: Screenshot nach `target/test-NAME.png`
@@ -33,8 +36,8 @@ use crate::GamePhase;
 use crate::shipyard::{Credits, Shipyard};
 use crate::boss::{Boss, BossCore, Plate};
 use crate::enemy::WaveCleared;
-use crate::level::{LEVEL_LENGTH, LevelProgress};
-use crate::player::Player;
+use crate::level::{Campaign, LEVEL_LENGTH, LEVELS, LevelProgress, LevelStarted};
+use crate::player::{Loadout, Player};
 use crate::superweapon::FireSuper;
 use crate::task::ActiveTask;
 
@@ -122,6 +125,9 @@ fn play_script(
     mut exit: MessageWriter<AppExit>,
     mut typed: MessageWriter<bevy::input::keyboard::KeyboardInput>,
     mut pointer: MessageWriter<PointerInput>,
+    mut started: MessageWriter<LevelStarted>,
+    mut loadout: ResMut<Loadout>,
+    mut campaign: ResMut<Campaign>,
     window: Single<(Entity, &Window), With<PrimaryWindow>>,
 ) {
     let (window, size) = (window.0, window.1.size());
@@ -176,6 +182,16 @@ fn play_script(
         } else if action == "klick" {
             mouse(script.cursor, PointerAction::Press(PointerButton::Primary));
             script.release = true;
+        } else if let Some(n) = action.strip_prefix("level ").and_then(|n| n.parse::<usize>().ok()) {
+            campaign.unlocked = campaign.unlocked.max(n.min(LEVELS.len()));
+            started.write(LevelStarted(n.clamp(1, LEVELS.len()) - 1));
+        } else if let Some(rest) = action.strip_prefix("waffen ") {
+            let levels: Vec<u8> = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+            if let [laser, missiles, side, drones] = levels[..] {
+                *loadout = Loadout { laser, missiles, side, drones };
+            }
+        } else if let Some(n) = action.strip_prefix("besiegt ").and_then(|n| n.parse().ok()) {
+            campaign.beaten = n;
         } else if action == "sieg" {
             if let Some(boss) = &mut boss {
                 boss.health = 0.0;

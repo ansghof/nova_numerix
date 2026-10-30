@@ -142,10 +142,17 @@ pub struct SaveData {
     credits: u32,
     laser: u8,
     missiles: u8,
+    #[serde(default)]
+    side: u8,
+    #[serde(default)]
+    drones: u8,
     health: f32,
     bought_charges: u8,
     slow_chips: u32,
     unlocked: usize,
+    /// Fehlt in älteren Ständen; dann zählt jedes freigeschaltete Level als besiegt.
+    #[serde(default)]
+    beaten: usize,
     level: usize,
     score: u32,
     mastery: Vec<(String, Vec<f32>)>,
@@ -161,10 +168,13 @@ impl SaveData {
             credits: 0,
             laser: loadout.laser,
             missiles: loadout.missiles,
+            side: loadout.side,
+            drones: loadout.drones,
             health: MAX_HEALTH,
             bought_charges: 0,
             slow_chips: 0,
             unlocked: 1,
+            beaten: 0,
             level: 0,
             score: 0,
             mastery: Vec::new(),
@@ -202,10 +212,13 @@ impl GameState<'_, '_> {
             credits: self.credits.bank,
             laser: self.loadout.laser,
             missiles: self.loadout.missiles,
+            side: self.loadout.side,
+            drones: self.loadout.drones,
             health: self.player.health,
             bought_charges: self.weapon.bought,
             slow_chips: self.chips.0,
             unlocked: self.campaign.unlocked,
+            beaten: self.campaign.beaten,
             level: self.current.0,
             score: self.score.0,
             mastery,
@@ -215,12 +228,13 @@ impl GameState<'_, '_> {
     fn apply(&mut self, data: SaveData) {
         self.name.0 = data.ship_name;
         *self.credits = Credits { bank: data.credits, flight: 0 };
-        *self.loadout = Loadout { laser: data.laser, missiles: data.missiles };
+        *self.loadout = Loadout { laser: data.laser, missiles: data.missiles, side: data.side, drones: data.drones };
         self.player.health = data.health;
         self.player.invulnerable = 0.0;
         self.weapon.bought = data.bought_charges;
         self.chips.0 = data.slow_chips;
         self.campaign.unlocked = data.unlocked.clamp(1, LEVELS.len());
+        self.campaign.beaten = data.beaten.max(self.campaign.unlocked - 1).min(LEVELS.len());
         self.current.0 = data.level.min(LEVELS.len() - 1);
         self.score.0 = data.score;
         self.mastery.0 = data.mastery.into_iter().collect();

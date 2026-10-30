@@ -1,14 +1,19 @@
 //! Gegnerwellen, die von rechts hereinfliegen, und die goldenen Frachtdrohnen, deren Abschuss
-//! eine Aufgabe auslöst.
+//! eine Aufgabe auslöst. Welche Formationen kommen, bestimmt das Level: Im Neonnebel fliegen
+//! Wackler, Pfeile und Kreisel, auf der Gitterstation warten Geschütze am Rand, Teiler, die in
+//! Splitter zerfallen, und Sucher, die dem Schiff nachsteuern.
+//!
+//! Jede Frachtdrohne zeigt in ihrem Inneren und auf einem Schild darunter, was sie geladen hat.
 
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::neon::{GOLD, MAGENTA, RED, Shape, VIOLET, WHITE, polygon, scaled};
+use crate::neon::{GOLD, LIME, MAGENTA, ORANGE, PINK, RED, Shape, VIOLET, WHITE, polygon, scaled};
 use crate::particles::Particles;
-use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Player};
+use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Loadout, Player};
 use crate::rng::Rng;
-use crate::level::{LevelProgress, LevelStarted};
+use crate::level::{Campaign, CurrentLevel, LevelProgress, LevelStarted};
+use crate::task::Reward;
 use crate::shipyard::Credits;
 use crate::shots::{Targetable, spawn_enemy_shot};
 use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield, Shake};
@@ -23,6 +28,14 @@ const DART_SPEED: f32 = 380.0;
 /// Wie schnell ein Kreisel-Verband nach links zieht und sich dabei dreht.
 const RING_SPEED: f32 = 120.0;
 const RING_SPIN: f32 = 1.8;
+/// Geschütze sitzen auf dem Gitter und ziehen mit ihm vorbei.
+const GRID_SPEED: f32 = 140.0;
+/// Mittelpunkt eines Geschützes über bzw. unter der Mitte; der Sockel liegt auf der Gitterlinie.
+const TURRET_Y: f32 = HALF_HEIGHT - 52.0;
+const SEEKER_SPEED: f32 = 210.0;
+/// So schnell steuert ein Sucher höchstens nach oben oder unten.
+const SEEKER_CLIMB: f32 = 170.0;
+const SHARD_SPEED: f32 = 250.0;
 /// So lange steigt der Schriftzug nach einer ausgelöschten Welle auf.
 const BANNER_TIME: f32 = 1.3;
 
@@ -37,7 +50,7 @@ impl Plugin for EnemyPlugin {
             .add_systems(Update, clear_on_start)
             .add_systems(
                 Update,
-                (spawn_waves, fly, shoot, ram_player, flash, destroy, rise_banners).chain().in_set(Gameplay),
+                (spawn_waves, fly, follow_cargo, shoot, ram_player, flash, destroy, rise_banners).chain().in_set(Gameplay),
             );
     }
 }
@@ -52,6 +65,34 @@ pub enum EnemyKind {
     Spinner,
     /// Trägt Fracht; wer sie abschießt, bekommt eine Aufgabe.
     Freighter,
+    /// Sitzt am Rand auf dem Gitter und feuert Dreiergarben.
+    Turret,
+    /// Zerfällt beim Abschuss in zwei Splitter.
+    Splitter,
+    Shard,
+    /// Steuert auf die Höhe des Schiffs, bis es vorbei ist.
+    Seeker,
+}
+
+/// Wie eine Welle aufgebaut ist.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Formation {
+    /// Schlange aus Wacklern
+    Snake,
+    /// Pfeile in V-Formation
+    Arrow,
+    /// Wackler oben und unten gleichzeitig
+    Pincer,
+    /// Pfeile im Sturzflug
+    Dive,
+    /// Kreisel im Ring
+    Ring,
+    /// Geschützreihe am Rand
+    Turrets,
+    /// Teiler im Verband
+    Splitters,
+    /// Sucherschwarm
+    Seekers,
 }
 
 impl EnemyKind {
@@ -61,6 +102,10 @@ impl EnemyKind {
             Self::Dart => 2.0,
             Self::Spinner => 2.0,
             Self::Freighter => 6.0,
+            Self::Turret => 5.0,
+            Self::Splitter => 5.0,
+            Self::Shard => 1.0,
+            Self::Seeker => 2.0,
         }
     }
 
@@ -70,14 +115,20 @@ impl EnemyKind {
             Self::Dart => 150,
             Self::Spinner => 120,
             Self::Freighter => 300,
+            Self::Turret => 200,
+            Self::Splitter => 150,
+            Self::Shard => 50,
+            Self::Seeker => 130,
         }
     }
 
     /// Credits für den Abschuss.
     fn credits(self) -> u32 {
         match self {
-            Self::Wobbler | Self::Spinner => 2,
-            Self::Dart => 3,
+            Self::Shard => 1,
+            Self::Wobbler | Self::Spinner | Self::Seeker => 2,
+            Self::Dart | Self::Splitter => 3,
+            Self::Turret => 4,
             Self::Freighter => 6,
         }
     }
@@ -88,6 +139,10 @@ impl EnemyKind {
             Self::Dart => 16.0,
             Self::Spinner => 15.0,
             Self::Freighter => 24.0,
+            Self::Turret => 20.0,
+            Self::Splitter => 20.0,
+            Self::Shard => 10.0,
+            Self::Seeker => 14.0,
         }
     }
 
@@ -110,11 +165,28 @@ impl EnemyKind {
             Self::Spinner => Shape::new(VIOLET)
                 .closed(&polygon(4, 16.0, 0.0))
                 .closed(&polygon(4, 7.0, std::f32::consts::FRAC_PI_4)),
-            Self::Freighter => Shape::new(GOLD)
-                .closed(&polygon(6, 24.0, 0.0))
-                .closed(&polygon(4, 11.0, std::f32::consts::FRAC_PI_4))
-                .open(&[Vec2::new(-11.0, 0.0), Vec2::new(11.0, 0.0)])
-                .open(&[Vec2::new(0.0, -11.0), Vec2::new(0.0, 11.0)]),
+            // Doppelter Rahmen; in der Mitte sitzt das Zeichen der Ladung.
+            Self::Freighter => Shape::new(GOLD).closed(&polygon(6, 26.0, 0.0)).closed(&polygon(6, 19.0, 0.0)),
+            // Für ein Geschütz am Boden; an der Decke wird es gespiegelt.
+            Self::Turret => Shape::new(ORANGE)
+                .open(&[Vec2::new(-28.0, -12.0), Vec2::new(28.0, -12.0)])
+                .closed(&[
+                    Vec2::new(-18.0, -12.0),
+                    Vec2::new(-12.0, 2.0),
+                    Vec2::new(0.0, 8.0),
+                    Vec2::new(12.0, 2.0),
+                    Vec2::new(18.0, -12.0),
+                ])
+                .open(&[Vec2::new(-3.0, 6.0), Vec2::new(-14.0, 20.0)])
+                .open(&[Vec2::new(2.0, 7.0), Vec2::new(-9.0, 22.0)]),
+            Self::Splitter => Shape::new(LIME)
+                .closed(&polygon(4, 22.0, std::f32::consts::FRAC_PI_4))
+                .closed(&polygon(4, 11.0, 0.0))
+                .open(&[Vec2::new(0.0, -15.0), Vec2::new(0.0, 15.0)]),
+            Self::Shard => Shape::new(LIME).closed(&polygon(4, 10.0, std::f32::consts::FRAC_PI_4)),
+            Self::Seeker => Shape::new(PINK)
+                .closed(&[Vec2::new(-17.0, 0.0), Vec2::new(7.0, 10.0), Vec2::new(2.0, 0.0), Vec2::new(7.0, -10.0)])
+                .closed(&polygon(3, 3.0, std::f32::consts::PI)),
         }
     }
 }
@@ -136,6 +208,8 @@ pub struct Enemy {
     center: Vec2,
     /// Zu welcher Welle der Gegner gehört; Frachtdrohnen gehören zu keiner.
     wave: Option<u32>,
+    /// Was eine Frachtdrohne geladen hat.
+    cargo: Option<Reward>,
 }
 
 impl Enemy {
@@ -151,6 +225,7 @@ impl Enemy {
             heading: Vec2::NEG_X,
             center: Vec2::ZERO,
             wave: None,
+            cargo: None,
         }
     }
 }
@@ -160,7 +235,7 @@ pub struct Hitbox(pub f32);
 
 /// Eine Frachtdrohne wurde zerstört; die Aufgabe dazu startet, sobald gerade keine läuft.
 #[derive(Message)]
-pub struct FreightDestroyed;
+pub struct FreightDestroyed(pub Reward);
 
 /// Eine Welle wurde vollständig abgeschossen, ohne dass ein Gegner entkommen ist.
 #[derive(Message)]
@@ -202,7 +277,19 @@ impl Waves {
         let wave = self.open.swap_remove(index);
         (!wave.escaped).then_some(wave.size)
     }
+
+    /// Die Welle bekommt Zuwachs, etwa Splitter eines Teilers.
+    fn grow(&mut self, id: u32, count: u32) {
+        if let Some(wave) = self.open.iter_mut().find(|w| w.id == id) {
+            wave.size += count;
+            wave.remaining += count;
+        }
+    }
 }
+
+/// Zeichen und Schild einer Frachtdrohne; folgt ihr, dreht sich aber nicht mit.
+#[derive(Component)]
+struct CargoTag(Entity);
 
 /// Schriftzug über einer ausgelöschten Welle, steigt auf und verblasst.
 #[derive(Component)]
@@ -214,9 +301,37 @@ struct Spawner {
     freighter: f32,
 }
 
-fn spawn_enemy(commands: &mut Commands, enemy: Enemy, pos: Vec2) {
+fn spawn_enemy(commands: &mut Commands, enemy: Enemy, pos: Vec2) -> Entity {
     let kind = enemy.kind;
-    commands.spawn((enemy, Hitbox(kind.radius()), Targetable, kind.shape(), Transform::from_translation(pos.extend(0.0))));
+    commands.spawn((enemy, Hitbox(kind.radius()), Targetable, kind.shape(), Transform::from_translation(pos.extend(0.0)))).id()
+}
+
+fn spawn_cargo_tag(commands: &mut Commands, freighter: Entity, reward: Reward, pos: Vec2) {
+    commands
+        .spawn((CargoTag(freighter), reward.icon(), Transform::from_translation(pos.extend(0.1))))
+        .with_child((
+            Text2d::new(reward.label()),
+            TextFont {
+                font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
+                ..TextFont::from_font_size(15.0)
+            },
+            TextColor(Color::LinearRgba(scaled(reward.color(), 0.8))),
+            Transform::from_xyz(0.0, -42.0, 2.0),
+        ));
+}
+
+/// Das Ladungsschild folgt seiner Frachtdrohne und verschwindet mit ihr.
+fn follow_cargo(
+    mut commands: Commands,
+    mut tags: Query<(Entity, &CargoTag, &mut Transform)>,
+    freighters: Query<&Transform, (With<Enemy>, Without<CargoTag>)>,
+) {
+    for (entity, tag, mut transform) in &mut tags {
+        match freighters.get(tag.0) {
+            Ok(freighter) => transform.translation = freighter.translation.truncate().extend(0.1),
+            Err(_) => commands.entity(entity).despawn(),
+        }
+    }
 }
 
 /// Neues Level: Was noch fliegt, verschwindet, und Wellen wie Frachtdrohnen beginnen von vorn.
@@ -245,6 +360,10 @@ fn spawn_waves(
     mut waves: ResMut<Waves>,
     progress: Res<LevelProgress>,
     field: Res<Playfield>,
+    current: Res<CurrentLevel>,
+    campaign: Res<Campaign>,
+    loadout: Res<Loadout>,
+    player: Single<&Player>,
 ) {
     let dt = time.delta_secs();
     let spawn_x = field.half_width + SPAWN_MARGIN;
@@ -254,8 +373,12 @@ fn spawn_waves(
     if spawner.freighter <= 0.0 {
         spawner.freighter = rng.range(9.0, 12.0);
         let y = rng.range(-180.0, 180.0);
-        let freighter = Enemy::new(EnemyKind::Freighter, &mut rng);
-        spawn_enemy(&mut commands, freighter, Vec2::new(spawn_x, y));
+        let mut freighter = Enemy::new(EnemyKind::Freighter, &mut rng);
+        let cargo = Reward::choose(&mut rng, &loadout, player.health, campaign.beaten);
+        freighter.cargo = Some(cargo);
+        let pos = Vec2::new(spawn_x, y);
+        let entity = spawn_enemy(&mut commands, freighter, pos);
+        spawn_cargo_tag(&mut commands, entity, cargo, pos);
     }
 
     // Beim Boss kommen nur noch Frachtdrohnen.
@@ -265,9 +388,9 @@ fn spawn_waves(
     spawner.wave = rng.range(2.0, 3.0);
 
     let mut members: Vec<(Enemy, Vec2)> = Vec::new();
-    match rng.below(5) {
-        // Schlange aus Wackelschiffen
-        0 => {
+    let formations = current.def().formations;
+    match formations[rng.below(formations.len())] {
+        Formation::Snake => {
             let y = rng.range(-200.0, 200.0);
             for i in 0..6 {
                 let mut enemy = Enemy::new(EnemyKind::Wobbler, &mut rng);
@@ -275,15 +398,13 @@ fn spawn_waves(
                 members.push((enemy, Vec2::new(spawn_x + i as f32 * 55.0, y)));
             }
         }
-        // Pfeile in V-Formation
-        1 => {
+        Formation::Arrow => {
             let y = rng.range(-170.0, 170.0);
             for (dx, dy) in [(0.0, 0.0), (40.0, 45.0), (40.0, -45.0), (80.0, 90.0), (80.0, -90.0)] {
                 members.push((Enemy::new(EnemyKind::Dart, &mut rng), Vec2::new(spawn_x + dx, y + dy)));
             }
         }
-        // Zange: oben und unten gleichzeitig
-        2 => {
+        Formation::Pincer => {
             for y in [-220.0, 220.0] {
                 for i in 0..4 {
                     let mut enemy = Enemy::new(EnemyKind::Wobbler, &mut rng);
@@ -292,8 +413,8 @@ fn spawn_waves(
                 }
             }
         }
-        // Sturzflug: Pfeile stoßen schräg von oben oder unten herab
-        3 => {
+        // Die Pfeile stoßen schräg von oben oder unten herab.
+        Formation::Dive => {
             let side = if rng.chance(0.5) { 1.0 } else { -1.0 };
             let heading = Vec2::new(-0.75, -0.66 * side).normalize();
             for i in 0..5 {
@@ -303,8 +424,8 @@ fn spawn_waves(
                 members.push((enemy, pos));
             }
         }
-        // Kreisel: ein Ring, der sich beim Heranfliegen dreht
-        _ => {
+        // Ein Ring, der sich beim Heranfliegen dreht
+        Formation::Ring => {
             let center = Vec2::new(spawn_x + 90.0, rng.range(-170.0, 170.0));
             for i in 0..6 {
                 let mut enemy = Enemy::new(EnemyKind::Spinner, &mut rng);
@@ -313,11 +434,48 @@ fn spawn_waves(
                 members.push((enemy, center + offset));
             }
         }
+        // Drei Geschütze an Boden oder Decke, manchmal zwei weitere gegenüber
+        Formation::Turrets => {
+            let side = if rng.chance(0.5) { 1.0 } else { -1.0 };
+            for i in 0..3 {
+                members.push((Enemy::new(EnemyKind::Turret, &mut rng), Vec2::new(spawn_x + i as f32 * 220.0, side * TURRET_Y)));
+            }
+            if rng.chance(0.3) {
+                for i in 0..2 {
+                    let x = spawn_x + 110.0 + i as f32 * 220.0;
+                    members.push((Enemy::new(EnemyKind::Turret, &mut rng), Vec2::new(x, -side * TURRET_Y)));
+                }
+            }
+        }
+        // Drei Teiler, leicht versetzt übereinander
+        Formation::Splitters => {
+            let y = rng.range(-140.0, 140.0);
+            for i in 0..3 {
+                let mut enemy = Enemy::new(EnemyKind::Splitter, &mut rng);
+                enemy.wave_phase = i as f32 * 0.8;
+                members.push((enemy, Vec2::new(spawn_x + i as f32 * 70.0, y + (i as f32 - 1.0) * 110.0)));
+            }
+        }
+        // Sechs Sucher, verstreut über die ganze Höhe
+        Formation::Seekers => {
+            for i in 0..6 {
+                let y = rng.range(-250.0, 250.0);
+                let mut enemy = Enemy::new(EnemyKind::Seeker, &mut rng);
+                // Jeder zielt etwas über oder unter das Schiff, damit der Schwarm nicht zur Linie wird.
+                enemy.wave_phase = rng.range(-80.0, 80.0);
+                members.push((enemy, Vec2::new(spawn_x + i as f32 * 80.0, y)));
+            }
+        }
     }
     let id = waves.start(members.len() as u32);
     for (mut enemy, pos) in members {
         enemy.wave = Some(id);
-        spawn_enemy(&mut commands, enemy, pos);
+        let flipped = enemy.kind == EnemyKind::Turret && pos.y > 0.0;
+        let entity = spawn_enemy(&mut commands, enemy, pos);
+        if flipped {
+            // An der Decke hängt das Geschütz kopfüber.
+            commands.entity(entity).insert(Transform::from_translation(pos.extend(0.0)).with_scale(Vec3::new(1.0, -1.0, 1.0)));
+        }
     }
 }
 
@@ -327,8 +485,10 @@ fn fly(
     field: Res<Playfield>,
     mut waves: ResMut<Waves>,
     mut enemies: Query<(Entity, &mut Enemy, &mut Transform)>,
+    player: Single<&Transform, (With<Player>, Without<Enemy>)>,
 ) {
     let dt = time.delta_secs();
+    let target = player.translation.truncate();
     for (entity, mut enemy, mut transform) in &mut enemies {
         enemy.age += dt;
         let t = enemy.age * 2.5 + enemy.wave_phase;
@@ -342,11 +502,26 @@ fn fly(
                 Vec2::new(-RING_SPEED, 0.0) + offset.perp() * RING_SPIN
             }
             EnemyKind::Freighter => Vec2::new(-110.0, (enemy.age * 1.5).cos() * 30.0),
+            EnemyKind::Turret => Vec2::new(-GRID_SPEED, 0.0),
+            EnemyKind::Splitter => Vec2::new(-115.0, (enemy.age * 1.6 + enemy.wave_phase).sin() * 45.0),
+            EnemyKind::Shard => enemy.heading * SHARD_SPEED,
+            EnemyKind::Seeker => {
+                // Nachsteuern, solange das Schiff noch vor ihm liegt; danach geradeaus weiter.
+                let pos = transform.translation.truncate();
+                if pos.x > target.x + 120.0 {
+                    let aim = target.y + enemy.wave_phase;
+                    enemy.heading.y = ((aim - pos.y) * 2.2).clamp(-SEEKER_CLIMB, SEEKER_CLIMB);
+                }
+                Vec2::new(-SEEKER_SPEED, enemy.heading.y)
+            }
         };
         transform.translation += (vel * dt).extend(0.0);
         match enemy.kind {
             EnemyKind::Freighter => transform.rotate_z(0.8 * dt),
             EnemyKind::Spinner => transform.rotate_z(3.0 * dt),
+            EnemyKind::Splitter => transform.rotate_z(0.7 * dt),
+            EnemyKind::Shard => transform.rotate_z(5.0 * dt),
+            EnemyKind::Seeker => transform.rotation = Quat::from_rotation_z(vel.to_angle() - std::f32::consts::PI),
             _ => {}
         }
         // Entkommen: links hinaus oder nach einem Sturzflug oben bzw. unten.
@@ -370,17 +545,33 @@ fn shoot(
 ) {
     let target = player.translation.truncate();
     for (mut enemy, transform) in &mut enemies {
-        if enemy.kind != EnemyKind::Wobbler {
+        if !matches!(enemy.kind, EnemyKind::Wobbler | EnemyKind::Turret) {
             continue;
         }
         enemy.fire_timer -= time.delta_secs();
         let pos = transform.translation.truncate();
-        if enemy.fire_timer > 0.0 || pos.x > field.half_width - 20.0 || pos.x < target.x {
+        if enemy.fire_timer > 0.0 || pos.x > field.half_width - 20.0 {
             continue;
         }
-        enemy.fire_timer = rng.range(2.0, 4.5);
-        let dir = (target - pos).normalize_or(Vec2::NEG_X);
-        spawn_enemy_shot(&mut commands, pos, dir * ENEMY_SHOT_SPEED);
+        if enemy.kind == EnemyKind::Wobbler {
+            if pos.x < target.x {
+                continue;
+            }
+            enemy.fire_timer = rng.range(2.0, 4.5);
+            let dir = (target - pos).normalize_or(Vec2::NEG_X);
+            spawn_enemy_shot(&mut commands, pos, dir * ENEMY_SHOT_SPEED);
+        } else {
+            // Geschütz: eine Garbe aus drei Schüssen in Richtung Schiff, aus dem Rohr heraus.
+            if pos.x < -field.half_width + 40.0 {
+                continue;
+            }
+            enemy.fire_timer = rng.range(3.6, 5.0);
+            let muzzle = pos + Vec2::new(-12.0, 16.0 * -pos.y.signum());
+            let aim = (target - muzzle).normalize_or(Vec2::NEG_X).to_angle();
+            for spread in [-0.2, 0.0, 0.2] {
+                spawn_enemy_shot(&mut commands, muzzle, Vec2::from_angle(aim + spread) * ENEMY_SHOT_SPEED);
+            }
+        }
     }
 }
 
@@ -441,7 +632,19 @@ fn destroy(
         score.0 += enemy.kind.points();
         credits.flight += enemy.kind.credits();
         if enemy.kind == EnemyKind::Freighter {
-            freight.write(FreightDestroyed);
+            freight.write(FreightDestroyed(enemy.cargo.unwrap_or(Reward::Repair)));
+        }
+        // Ein Teiler zerfällt in zwei Splitter, die zur selben Welle gehören.
+        if enemy.kind == EnemyKind::Splitter {
+            if let Some(wave) = enemy.wave {
+                waves.grow(wave, 2);
+            }
+            for side in [1.0, -1.0] {
+                let mut shard = Enemy::new(EnemyKind::Shard, &mut rng);
+                shard.heading = Vec2::new(-0.75, 0.66 * side).normalize();
+                shard.wave = enemy.wave;
+                spawn_enemy(&mut commands, shard, transform.translation.truncate() + Vec2::Y * 12.0 * side);
+            }
         }
         if let Some(size) = enemy.wave.and_then(|wave| waves.gone(wave, false)) {
             cleared.write(WaveCleared { size });

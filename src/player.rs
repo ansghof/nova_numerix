@@ -1,12 +1,14 @@
 //! Das Spielerschiff: fliegen mit WASD oder Pfeiltasten, feuern mit der Leertaste. Die
-//! Bewaffnung wächst mit Powerups und ist am Schiff zu sehen.
+//! Bewaffnung wächst mit Powerups und ist am Schiff zu sehen: Laserrohre an der Nase,
+//! Raketenwerfer unter den Flügeln, Seitenkanonen schräg an Ober- und Unterseite und bis zu zwei
+//! Begleitdrohnen, die dem Schiff folgen.
 
 use bevy::prelude::*;
 
 use crate::boss::BossState;
 use crate::level::LevelStarted;
 use crate::shipyard::Credits;
-use crate::neon::{CYAN, Shape, WHITE, scaled};
+use crate::neon::{CYAN, GREEN, Shape, WHITE, polygon, scaled};
 use crate::particles::Particles;
 use crate::rng::Rng;
 use crate::shots;
@@ -14,6 +16,8 @@ use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield, Shake};
 
 pub const MAX_HEALTH: f32 = 100.0;
 pub const MAX_LEVEL: u8 = 5;
+pub const MAX_SIDE: u8 = 3;
+pub const MAX_DRONES: u8 = 2;
 /// Radius der Schutzblase während einer Aufgabe und kurz danach.
 pub const BUBBLE_RADIUS: f32 = 70.0;
 /// Trefferradius des Schiffs selbst.
@@ -21,6 +25,13 @@ pub const HIT_RADIUS: f32 = 16.0;
 const SPEED: f32 = 430.0;
 const LASER_COOLDOWN: f32 = 0.13;
 const MISSILE_COOLDOWN: f32 = 0.9;
+const SIDE_COOLDOWN: f32 = 0.3;
+/// Drohnen feuern etwas langsamer als das Schiff.
+const DRONE_COOLDOWN: f32 = 0.2;
+/// Wo die Drohnen relativ zum Schiff fliegen.
+const DRONE_OFFSETS: [Vec2; 2] = [Vec2::new(-18.0, 52.0), Vec2::new(-18.0, -52.0)];
+/// Wie straff die Drohnen dem Schiff folgen; größer heißt dichter dran.
+const DRONE_FOLLOW: f32 = 9.0;
 /// Startpunkt, so weit vom linken Rand entfernt.
 const START_FROM_EDGE: f32 = 160.0;
 
@@ -37,7 +48,7 @@ impl Plugin for PlayerPlugin {
         app.init_resource::<Loadout>()
             .add_systems(Startup, spawn_player)
             .add_systems(PreUpdate, place_at_start.after(crate::update_playfield))
-            .add_systems(Update, start_of_level)
+            .add_systems(Update, (start_of_level, drones_to_start))
             .add_systems(
                 Update,
                 (
@@ -46,6 +57,8 @@ impl Plugin for PlayerPlugin {
                     tick_invulnerability,
                     exhaust,
                     show_weapons,
+                    sync_drones,
+                    follow_drones,
                     draw_bubble,
                     check_death,
                 )
@@ -61,6 +74,8 @@ pub struct Player {
     pub invulnerable: f32,
     laser_cooldown: f32,
     missile_cooldown: f32,
+    side_cooldown: f32,
+    drone_cooldown: f32,
 }
 
 impl Player {
@@ -76,12 +91,41 @@ impl Player {
 pub struct Loadout {
     pub laser: u8,
     pub missiles: u8,
+    /// Seitenkanonen feuern schräg nach oben und unten, gut gegen Geschütze am Rand.
+    pub side: u8,
+    pub drones: u8,
 }
 
 impl Default for Loadout {
     fn default() -> Self {
-        Self { laser: 1, missiles: 0 }
+        Self { laser: 1, missiles: 0, side: 0, drones: 0 }
     }
+}
+
+impl Loadout {
+    /// Kurzbeschreibung für HUD, Werft und Siegerbildschirm.
+    pub fn describe(&self) -> String {
+        let mut text = format!("Laser {}", self.laser);
+        for (level, name) in [(self.missiles, "Raketen"), (self.side, "Seitenkanonen"), (self.drones, "Drohnen")] {
+            if level > 0 {
+                text += &format!(" · {name} {level}");
+            }
+        }
+        text
+    }
+}
+
+/// Eine Begleitdrohne; `slot` bestimmt, ob sie über oder unter dem Schiff fliegt.
+#[derive(Component)]
+pub struct Drone {
+    slot: usize,
+}
+
+fn drone_shape() -> Shape {
+    Shape::new(GREEN)
+        .closed(&polygon(4, 10.0, 0.0))
+        .closed(&polygon(4, 4.0, std::f32::consts::FRAC_PI_4))
+        .open(&[Vec2::new(4.0, 0.0), Vec2::new(14.0, 0.0)])
 }
 
 /// Die sichtbaren Waffen am Schiff, neu aufgebaut, sobald sich die Bewaffnung ändert.
@@ -106,7 +150,14 @@ fn ship_shape() -> Shape {
 
 fn spawn_player(mut commands: Commands, field: Res<Playfield>) {
     commands.spawn((
-        Player { health: MAX_HEALTH, invulnerable: 0.0, laser_cooldown: 0.0, missile_cooldown: 0.0 },
+        Player {
+            health: MAX_HEALTH,
+            invulnerable: 0.0,
+            laser_cooldown: 0.0,
+            missile_cooldown: 0.0,
+            side_cooldown: 0.0,
+            drone_cooldown: 0.0,
+        },
         ship_shape(),
         Transform::from_translation(start(&field)),
     ));
@@ -132,6 +183,20 @@ fn start_of_level(
     let (mut player, mut transform) = player.into_inner();
     transform.translation = start(&field);
     player.invulnerable = 1.0;
+}
+
+/// Neues Level: Drohnen springen mit dem Schiff an den Start.
+fn drones_to_start(
+    mut started: MessageReader<LevelStarted>,
+    field: Res<Playfield>,
+    mut drones: Query<(&Drone, &mut Transform)>,
+) {
+    if started.read().last().is_none() {
+        return;
+    }
+    for (drone, mut transform) in &mut drones {
+        transform.translation = (start(&field).truncate() + DRONE_OFFSETS[drone.slot]).extend(1.0);
+    }
 }
 
 fn steer(
@@ -167,11 +232,14 @@ fn fire(
     keys: Res<ButtonInput<KeyCode>>,
     loadout: Res<Loadout>,
     player: Single<(&mut Player, &Transform)>,
+    drones: Query<&Transform, (With<Drone>, Without<Player>)>,
 ) {
     let (mut player, transform) = player.into_inner();
     let dt = time.delta_secs();
     player.laser_cooldown -= dt;
     player.missile_cooldown -= dt;
+    player.side_cooldown -= dt;
+    player.drone_cooldown -= dt;
     if !keys.pressed(KeyCode::Space) {
         return;
     }
@@ -184,7 +252,27 @@ fn fire(
             let offset = i as f32 - (n - 1) as f32 / 2.0;
             // Ab Stufe 4 fächern die äußeren Strahlen etwas auf.
             let spread = if n >= 4 { offset * 0.06 } else { 0.0 };
-            shots::spawn_laser(&mut commands, pos + Vec2::new(30.0, offset * 9.0), Vec2::from_angle(spread));
+            shots::spawn_laser(&mut commands, pos + Vec2::new(30.0, offset * 9.0), Vec2::from_angle(spread), WHITE);
+        }
+    }
+
+    // Seitenkanonen: je Stufe ein Schuss mehr nach oben und nach unten, schön aufgefächert.
+    if loadout.side > 0 && player.side_cooldown <= 0.0 {
+        player.side_cooldown = SIDE_COOLDOWN;
+        let n = loadout.side as usize;
+        for i in 0..n {
+            let angle = (35.0 + (i as f32 - (n - 1) as f32 / 2.0) * 20.0).to_radians();
+            for side in [1.0, -1.0] {
+                let dir = Vec2::from_angle(angle * side);
+                shots::spawn_side_shot(&mut commands, pos + Vec2::new(4.0, side * 14.0), dir);
+            }
+        }
+    }
+
+    if !drones.is_empty() && player.drone_cooldown <= 0.0 {
+        player.drone_cooldown = DRONE_COOLDOWN;
+        for drone in &drones {
+            shots::spawn_laser(&mut commands, drone.translation.truncate() + Vec2::X * 14.0, Vec2::X, GREEN);
         }
     }
 
@@ -253,7 +341,53 @@ fn show_weapons(
             }
         }
     }
+    // Seitenkanonen: schräge Rohre oben und unten am Rumpf, eins je Stufe.
+    for i in 0..loadout.side {
+        for side in [1.0, -1.0] {
+            let x = -4.0 + i as f32 * 6.0;
+            shape = shape.open(&[Vec2::new(x, side * 9.0), Vec2::new(x + 7.0, side * 17.0)]);
+        }
+    }
     commands.spawn((WeaponMounts, shape, Transform::default(), ChildOf(*player)));
+}
+
+/// So viele Drohnen, wie die Bewaffnung vorsieht; neue erscheinen direkt am Schiff.
+fn sync_drones(
+    mut commands: Commands,
+    loadout: Res<Loadout>,
+    player: Single<&Transform, With<Player>>,
+    drones: Query<(Entity, &Drone)>,
+) {
+    if !loadout.is_changed() {
+        return;
+    }
+    let wanted = loadout.drones as usize;
+    for (entity, drone) in &drones {
+        if drone.slot >= wanted {
+            commands.entity(entity).despawn();
+        }
+    }
+    for (slot, offset) in DRONE_OFFSETS.iter().enumerate().take(wanted) {
+        if !drones.iter().any(|(_, d)| d.slot == slot) {
+            let pos = player.translation.truncate() + *offset;
+            commands.spawn((Drone { slot }, drone_shape(), Transform::from_translation(pos.extend(1.0))));
+        }
+    }
+}
+
+/// Die Drohnen ziehen dem Schiff mit etwas Verzögerung hinterher.
+fn follow_drones(
+    time: Res<Time>,
+    player: Single<&Transform, With<Player>>,
+    mut drones: Query<(&Drone, &mut Transform), Without<Player>>,
+) {
+    let dt = time.delta_secs();
+    let follow = 1.0 - (-DRONE_FOLLOW * dt).exp();
+    for (drone, mut transform) in &mut drones {
+        let target = player.translation.truncate() + DRONE_OFFSETS[drone.slot];
+        let pos = transform.translation.truncate().lerp(target, follow);
+        transform.translation = pos.extend(1.0);
+    }
 }
 
 fn draw_bubble(
