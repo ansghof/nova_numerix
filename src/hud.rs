@@ -179,5 +179,8 @@ fn update_progress(
         // Blinkt, damit man es mitbekommt.
         let on = (time.elapsed_secs() * 3.0) as u32 % 2 == 0;
         label.1.0 = if on { BOSS } else { TEXT };
+    } else if label.0.0 != "Boss" {
+        label.0.0 = "Boss".into();
+        label.1.0 = BOSS;
     }
 }

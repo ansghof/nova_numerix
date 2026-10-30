@@ -41,6 +41,10 @@ pub struct Hostile;
 #[derive(Component)]
 struct Homing;
 
+/// Raketen suchen sich ihr Ziel unter allem, was dieses Merkmal trägt.
+#[derive(Component)]
+pub struct Targetable;
+
 fn oriented(pos: Vec2, dir: Vec2) -> Transform {
     Transform::from_translation(pos.extend(0.5)).with_rotation(Quat::from_rotation_z(dir.to_angle()))
 }
@@ -76,15 +80,15 @@ pub fn spawn_enemy_shot(commands: &mut Commands, pos: Vec2, vel: Vec2) {
 fn steer_missiles(
     time: Res<Time>,
     mut missiles: Query<(&mut Shot, &mut Transform), With<Homing>>,
-    enemies: Query<&Transform, (With<Enemy>, Without<Shot>)>,
+    targets: Query<&GlobalTransform, With<Targetable>>,
 ) {
     let dt = time.delta_secs();
     for (mut shot, mut transform) in &mut missiles {
         let pos = transform.translation.truncate();
         // Nur Ziele vor der Rakete kommen in Frage.
-        let target = enemies
+        let target = targets
             .iter()
-            .map(|t| t.translation.truncate())
+            .map(|t| t.translation().truncate())
             .filter(|t| t.x > pos.x - 20.0)
             .min_by(|a, b| a.distance_squared(pos).total_cmp(&b.distance_squared(pos)));
         if let Some(target) = target {
@@ -135,7 +139,7 @@ fn hit_enemies(
                 enemy.health -= shot.damage;
                 enemy.flash = 1.0;
                 particles.sparks(&mut rng, pos, WHITE, 5, 220.0);
-                commands.entity(entity).despawn();
+                commands.entity(entity).try_despawn();
                 break;
             }
         }

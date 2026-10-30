@@ -8,7 +8,8 @@ use crate::neon::{GOLD, MAGENTA, RED, Shape, WHITE, polygon};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Player};
 use crate::rng::Rng;
-use crate::shots::spawn_enemy_shot;
+use crate::level::LevelProgress;
+use crate::shots::{Targetable, spawn_enemy_shot};
 use crate::{GamePhase, HALF_WIDTH};
 
 const SPAWN_X: f32 = HALF_WIDTH + 60.0;
@@ -129,12 +130,19 @@ fn spawn_enemy(commands: &mut Commands, rng: &mut Rng, kind: EnemyKind, pos: Vec
             fire_timer: rng.range(1.0, 3.5),
         },
         Hitbox(kind.radius()),
+        Targetable,
         shape,
         Transform::from_translation(pos.extend(0.0)),
     ));
 }
 
-fn spawn_waves(mut commands: Commands, time: Res<Time>, mut rng: ResMut<Rng>, mut spawner: ResMut<Spawner>) {
+fn spawn_waves(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut rng: ResMut<Rng>,
+    mut spawner: ResMut<Spawner>,
+    progress: Res<LevelProgress>,
+) {
     let dt = time.delta_secs();
     spawner.wave -= dt;
     spawner.freighter -= dt;
@@ -145,7 +153,8 @@ fn spawn_waves(mut commands: Commands, time: Res<Time>, mut rng: ResMut<Rng>, mu
         spawn_enemy(&mut commands, &mut rng, EnemyKind::Freighter, Vec2::new(SPAWN_X, y), 0.0);
     }
 
-    if spawner.wave > 0.0 {
+    // Beim Boss kommen nur noch Frachtdrohnen.
+    if spawner.wave > 0.0 || progress.boss_ahead() {
         return;
     }
     spawner.wave = rng.range(2.8, 4.2);

@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use crate::GamePhase;
 use crate::enemy::FreightDestroyed;
 use crate::hud::Score;
+use crate::level::LevelStats;
 use crate::player::{Loadout, MAX_HEALTH, MAX_LEVEL, Player};
 use crate::rng::Rng;
 use crate::superweapon::FireSuper;
@@ -25,10 +26,10 @@ const RETURN_TIME: f32 = 0.7;
 const AFTER_RETURN_INVULNERABLE: f32 = 1.0;
 const WRONG_DAMAGE: f32 = 10.0;
 const REPAIR_AMOUNT: f32 = 35.0;
-const BASE_POINTS: f32 = 100.0;
-const SPEED_POINTS: f32 = 400.0;
+pub const BASE_POINTS: f32 = 100.0;
+pub const SPEED_POINTS: f32 = 400.0;
 /// Ab diesem Anteil an Restzeit gilt eine Antwort als blitzschnell.
-const FAST_SHARE: f32 = 0.5;
+pub const FAST_SHARE: f32 = 0.5;
 const MAX_DIGITS: usize = 4;
 /// Die Superwaffe hat etwas mehr Zeit, weil ein Fehler eine zweite Aufgabe nach sich zieht.
 const SUPER_EXTRA_TIME: f32 = 3.0;
@@ -153,6 +154,13 @@ pub struct PendingTasks {
     freight: u32,
     /// Der Spieler will die Superwaffe zünden.
     pub super_weapon: bool,
+}
+
+impl PendingTasks {
+    /// Am Levelende verfallen offene Aufgaben.
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
 }
 
 /// Wofür gerechnet wird.
@@ -358,6 +366,7 @@ fn type_answer(
     mut score: ResMut<Score>,
     mut loadout: ResMut<Loadout>,
     mut rng: ResMut<Rng>,
+    mut stats: ResMut<LevelStats>,
     mut fire: MessageWriter<FireSuper>,
     mut player: Single<&mut Player>,
     mut prompt: Single<(&mut Text, &mut TextColor), (With<PromptText>, Without<HintText>)>,
@@ -397,6 +406,7 @@ fn type_answer(
     let active = &mut *active;
     let solution = format!("{} = {}", active.task.prompt, active.task.answer);
     topic.0.record(&active.task, &outcome);
+    stats.count(&outcome);
     let (color, feedback) = match (&mut active.purpose, outcome) {
         (Purpose::Freight(reward), Outcome::Correct { remaining_share }) => {
             let points = (BASE_POINTS + SPEED_POINTS * remaining_share).round() as u32;

@@ -1,7 +1,9 @@
 //! Fortschritt durch das Level. Er läuft in Spielzeit, steht in der Zeitlupe also fast still.
-//! Am Ende wartet der Boss; den gibt es noch nicht, bis dahin geht der Flug einfach weiter.
+//! Am Ende wartet der Boss.
 
 use bevy::prelude::*;
+
+use crate::task::{FAST_SHARE, Outcome};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
 pub const LEVEL_LENGTH: f32 = 240.0;
@@ -12,7 +14,7 @@ pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LevelProgress>().add_systems(Update, advance);
+        app.init_resource::<LevelProgress>().init_resource::<LevelStats>().add_systems(Update, advance);
     }
 }
 
@@ -28,6 +30,30 @@ impl LevelProgress {
 
     pub fn boss_ahead(&self) -> bool {
         self.elapsed >= LEVEL_LENGTH
+    }
+}
+
+/// Wie die Aufgaben in diesem Level ausgegangen sind, für die Auswertung am Ende.
+#[derive(Resource, Default)]
+pub struct LevelStats {
+    pub correct: u32,
+    pub fast: u32,
+    pub timed_out: u32,
+    pub wrong: u32,
+}
+
+impl LevelStats {
+    pub fn count(&mut self, outcome: &Outcome) {
+        match outcome {
+            Outcome::Correct { remaining_share } => {
+                self.correct += 1;
+                if *remaining_share >= FAST_SHARE {
+                    self.fast += 1;
+                }
+            }
+            Outcome::TimedOut => self.timed_out += 1,
+            Outcome::Wrong => self.wrong += 1,
+        }
     }
 }
 

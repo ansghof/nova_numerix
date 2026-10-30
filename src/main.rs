@@ -1,4 +1,5 @@
 mod background;
+mod boss;
 #[cfg(debug_assertions)]
 mod devtools;
 mod enemy;
@@ -42,6 +43,12 @@ fn main() {
                 title: "Nova Numerix".into(),
                 resolution: (1280, 720).into(),
                 focused: !test_run,
+                // Testläufe öffnen ihr Fenster außerhalb des Bildschirms, damit es niemanden stört.
+                position: if test_run {
+                    WindowPosition::At(IVec2::new(-20000, -20000))
+                } else {
+                    WindowPosition::Automatic
+                },
                 ..default()
             }),
             ..default()
@@ -62,6 +69,7 @@ fn main() {
             task::TaskPlugin,
             superweapon::SuperWeaponPlugin,
             level::LevelPlugin,
+            boss::BossPlugin,
             hud::HudPlugin,
         ));
     #[cfg(debug_assertions)]

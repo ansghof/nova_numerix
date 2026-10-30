@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 
+use crate::boss::BossState;
 use crate::neon::{CYAN, Shape, WHITE, scaled};
 use crate::particles::Particles;
 use crate::rng::Rng;
@@ -32,7 +33,7 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (
                     steer,
-                    fire.run_if(in_state(GamePhase::Flying)),
+                    fire.run_if(in_state(GamePhase::Flying)).run_if(|boss: Res<BossState>| !boss.defeated),
                     tick_invulnerability,
                     exhaust,
                     show_weapons,

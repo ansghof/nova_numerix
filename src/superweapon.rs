@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 
 use crate::Shake;
+use crate::boss::{Boss, SUPER_MULTIPLIER};
 use crate::enemy::Enemy;
 use crate::neon::{CYAN, MAGENTA, WHITE, scaled};
 use crate::particles::Particles;
@@ -112,6 +113,7 @@ fn expand(
     mut waves: Query<(Entity, &mut Shockwave, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<Shockwave>>,
     shots: Query<(Entity, &Transform), (With<Hostile>, Without<Shockwave>)>,
+    mut bosses: Query<(Entity, &mut Boss, &Transform), (Without<Shockwave>, Without<Enemy>)>,
 ) {
     let dt = time.delta_secs();
     for (entity, mut wave, transform) in &mut waves {
@@ -133,6 +135,17 @@ fn expand(
             enemy.health -= wave.damage;
             enemy.flash = 1.0;
             particles.sparks(&mut rng, pos, WHITE, 8, 300.0);
+        }
+
+        // Bosse sind groß und stehen am Rand: Sie zählen, sobald sie auf dem Bildschirm sind.
+        for (boss_entity, mut boss, boss_transform) in &mut bosses {
+            let pos = boss_transform.translation.truncate();
+            if !boss.alive() || pos.x > HALF_WIDTH + 100.0 || wave.hit.contains(&boss_entity) || pos.distance(center) > wave.radius {
+                continue;
+            }
+            wave.hit.push(boss_entity);
+            boss.health -= wave.damage * SUPER_MULTIPLIER;
+            particles.sparks(&mut rng, pos, WHITE, 30, 450.0);
         }
 
         // Starke Wellen fegen auch feindliche Schüsse weg.

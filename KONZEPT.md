@@ -60,6 +60,22 @@ Schaden = Minimum + Restzeit-Anteil × (Maximum − Minimum), mit drei sichtbare
 **zweite Aufgabe**, der Balken läuft weiter. Ist auch sie falsch oder läuft die Zeit ab: Minimal-Schuss.
 Gegen Bosse 3- bis 5-facher Schaden.
 
+### Bosskampf (umgesetzt am Beispiel „Der Wächter“)
+Vor dem Kern des Bosses sitzen vier Zahlenplatten. Oben steht eine Aufgabe; wer die Platte
+mit dem richtigen Ergebnis abschießt, öffnet den Kern für 6 Sekunden. Die falschen Zahlen
+sind plausibel (Nachbarn, Zehnersprünge, vertauschte Ziffern). Hier läuft keine Zeitlupe:
+Rechnen ist Zielen, das Zeitlimit ist deshalb 1,6-mal so lang wie im Aufgabenfenster.
+
+| Ergebnis | Folge |
+|---|---|
+| richtige Platte, schnell | Kern 6 s offen, Punkte mit Tempo-Bonus |
+| Zeit abgelaufen | Lösung leuchtet grün, Kern nur 3 s offen, keine Punkte |
+| falsche Platte | Platte blinkt rot, Lösung wird gezeigt, Kern bleibt zu, gezielter Feuerstoß |
+
+Ab halber Energie feuert der Boss schneller. Die Superwaffe trifft ihn mit vierfachem
+Schaden, auch wenn der Kern zu ist. Nach dem Sieg zeigt eine Auswertung Punkte und
+Aufgabenbilanz; die Waffen bleiben an Bord.
+
 ### Mathe im Kampf
 - **Zahlen-Formationen:** Drei Gegner tragen Zahlen, oben steht eine Aufgabe. Den richtigen
   abschießen → Kombo-Bonus.

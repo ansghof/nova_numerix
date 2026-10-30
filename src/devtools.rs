@@ -5,6 +5,9 @@
 //! Aktionen:
 //! - eine Taste: `q`, `enter`, `rück`, `leer`, `0`–`9`
 //! - `antwort`: die richtige Lösung der offenen Aufgabe eintippen und abgeben
+//! - `boss`: direkt ans Levelende springen
+//! - `feuer an` / `feuer aus`: Leertaste dauerhaft halten
+//! - `zielen an` / `zielen aus`: das Schiff auf die richtige Bossplatte oder den offenen Kern ausrichten
 //! - `bild NAME`: Screenshot nach `target/test-NAME.png`
 //! - `ende`: Spiel beenden
 //!
@@ -18,6 +21,9 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
 use crate::GamePhase;
+use crate::boss::{Boss, BossCore, Plate};
+use crate::level::{LEVEL_LENGTH, LevelProgress};
+use crate::player::Player;
 use crate::superweapon::FireSuper;
 use crate::task::ActiveTask;
 
@@ -36,8 +42,8 @@ impl Plugin for DevToolsPlugin {
                 Some((time.parse().ok()?, action.trim().to_string()))
             })
             .collect();
-        app.insert_resource(TestScript { steps, keys: VecDeque::new(), held: None })
-            .add_systems(PreUpdate, play_script.after(InputSystems))
+        app.insert_resource(TestScript { steps, keys: VecDeque::new(), held: None, fire: false, aim: false })
+            .add_systems(PreUpdate, (play_script, aim).chain().after(InputSystems))
             .add_systems(Update, (log_phase, log_super));
     }
 }
@@ -48,6 +54,8 @@ struct TestScript {
     /// Tasten, die nacheinander je ein Bild lang gedrückt werden.
     keys: VecDeque<KeyCode>,
     held: Option<KeyCode>,
+    fire: bool,
+    aim: bool,
 }
 
 fn key(name: &str) -> Option<KeyCode> {
@@ -83,8 +91,12 @@ fn play_script(
     mut script: ResMut<TestScript>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     active: Option<Res<ActiveTask>>,
+    mut progress: ResMut<LevelProgress>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    if script.fire {
+        keys.press(KeyCode::Space);
+    }
     if let Some(held) = script.held.take() {
         keys.release(held);
     }
@@ -99,6 +111,15 @@ fn play_script(
         if let Some(name) = action.strip_prefix("bild ") {
             let path = format!("target/test-{name}.png");
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        } else if action == "boss" {
+            progress.elapsed = LEVEL_LENGTH;
+        } else if let Some(on) = action.strip_prefix("feuer ") {
+            script.fire = on == "an";
+            if !script.fire {
+                keys.release(KeyCode::Space);
+            }
+        } else if let Some(on) = action.strip_prefix("zielen ") {
+            script.aim = on == "an";
         } else if action == "ende" {
             exit.write(AppExit::Success);
         } else if action == "antwort" {
@@ -114,6 +135,29 @@ fn play_script(
         } else {
             warn!("Test: unbekannte Aktion {action}");
         }
+    }
+}
+
+/// Hält das Schiff auf der Höhe dessen, was gerade getroffen werden soll.
+fn aim(
+    script: Res<TestScript>,
+    boss: Option<Single<&Boss>>,
+    plates: Query<(&Plate, &GlobalTransform)>,
+    core: Option<Single<&GlobalTransform, With<BossCore>>>,
+    mut player: Single<&mut Transform, With<Player>>,
+) {
+    let (true, Some(boss)) = (script.aim, boss) else {
+        return;
+    };
+    let target = if boss.asking() {
+        plates.iter().find(|(plate, _)| plate.correct).map(|(_, t)| t.translation().y)
+    } else if boss.core_open() {
+        core.map(|c| c.translation().y)
+    } else {
+        None
+    };
+    if let Some(y) = target {
+        player.translation.y = y;
     }
 }
 
