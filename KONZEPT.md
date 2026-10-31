@@ -244,8 +244,21 @@ stehen die Stellenwerte 8 · 4 · 2 · 1.
 Hintergründe: am Gasriesen ein gestreifter Planet, im Datenkern herabrieselnde Datenströme.
 Addition und Subtraktion bis 20 sind für 10- bis 15-Jährige zu leicht und entfallen vorerst.
 
-Pro Level 3 Sterne (geschafft / über 80 % richtig / Boss mit Superwaffe Stufe 3 besiegt),
-Schwierigkeitsgrade Kadett / Pilot / Ass.
+Pro Level 3 Sterne (umgesetzt): geschafft / mindestens 80 % richtig / den Boss mit voller
+Superwaffen-Ladung (Stufe 3) erledigt. Der Siegerbildschirm zeigt alle drei mit Erklärung und
+einen Tipp für den fehlenden; gespeichert wird der Bestwert je Level. Die Werft zeigt die Sterne
+beim Level und die Summe, die Slot-Liste ebenfalls.
+
+Schwierigkeitsgrade (umgesetzt), beim neuen Spiel mit ←/→ gewählt und in der Werft änderbar:
+
+| Grad | Zeit je Aufgabe | Schaden durch Treffer | Abstand der Wellen |
+|---|---|---|---|
+| Kadett | × 1,4 | × 0,6 | × 1,3 |
+| Pilot | × 1,0 | × 1,0 | × 1,0 |
+| Ass | × 0,8 | × 1,3 | × 0,8 |
+
+Der Schildabzug bei falschen Antworten ist auf allen Graden gleich. Sterne gibt es auf jedem
+Grad gleich, damit niemand auf Kadett benachteiligt ist.
 
 Später denkbar: Verdoppeln und Halbieren, Division, Mischlevel, Endlosmodus.
 

@@ -52,7 +52,7 @@ pub struct TaskPlugin;
 
 impl Plugin for TaskPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Topic(Box::new(SmallTimesTable::new())))
+        app.insert_resource(Topic(Box::new(SmallTimesTable::new()), 1.0))
             .init_resource::<PendingTasks>()
             .init_resource::<SlowChips>()
             .add_systems(Update, reset_on_start)
@@ -394,7 +394,17 @@ fn reweigh(weight: &mut f32, outcome: &Outcome) {
 pub struct SlowChips(pub u32);
 
 #[derive(Resource)]
-pub struct Topic(pub Box<dyn TaskGenerator>);
+/// Das laufende Rechenthema und der Zeitfaktor des Schwierigkeitsgrads.
+pub struct Topic(pub Box<dyn TaskGenerator>, pub f32);
+
+impl Topic {
+    /// Die nächste Aufgabe, mit dem Zeitlimit des Schwierigkeitsgrads.
+    pub fn next(&mut self, rng: &mut Rng) -> Task {
+        let mut task = self.0.next(rng);
+        task.time_limit *= self.1;
+        task
+    }
+}
 
 /// Aufgaben, die starten, sobald gerade keine läuft.
 #[derive(Resource, Default)]
@@ -647,7 +657,7 @@ fn start_task(
     } else {
         return;
     };
-    let task = topic.0.next(&mut rng);
+    let task = topic.next(&mut rng);
     let mut time_limit = task.time_limit + extra_time;
     let chip = chips.0 > 0;
     if chip {
@@ -848,7 +858,7 @@ fn type_answer(
             // Zweite Chance: neue Aufgabe, der Balken läuft einfach weiter.
             *second_chance_used = true;
             let message = format!("Falsch: {solution}. Neue Aufgabe, die Zeit läuft weiter!");
-            active.task = topic.0.next(&mut rng);
+            active.task = topic.next(&mut rng);
             active.input.clear();
             hint.0.0 = message;
             hint.1.0 = BAD;

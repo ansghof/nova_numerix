@@ -15,6 +15,7 @@ use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Loadout, Player};
 use crate::rng::Rng;
 use crate::level::{Campaign, CurrentLevel, LevelProgress, LevelStarted, Rewind};
+use crate::difficulty::Difficulty;
 use crate::ship::Ship;
 use crate::task::Reward;
 use crate::shipyard::Credits;
@@ -452,6 +453,7 @@ fn spawn_waves(
     campaign: Res<Campaign>,
     loadout: Res<Loadout>,
     ship: Res<Ship>,
+    difficulty: Res<Difficulty>,
     player: Single<&Player>,
 ) {
     let dt = time.delta_secs();
@@ -474,7 +476,7 @@ fn spawn_waves(
     if spawner.wave > 0.0 || progress.boss_ahead() {
         return;
     }
-    spawner.wave = rng.range(2.0, 3.0);
+    spawner.wave = rng.range(2.0, 3.0) * difficulty.wave_gap_factor();
 
     let mut members: Vec<(Enemy, Vec2)> = Vec::new();
     let formations = current.def().formations;

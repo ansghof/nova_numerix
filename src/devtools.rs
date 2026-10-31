@@ -3,12 +3,13 @@
 //! `NOVA_TEST="2 q; 3 1; 3.1 enter; 3.3 bild falsch; 6 ende"`.
 //!
 //! Aktionen:
-//! - eine Taste: `q`, `enter`, `rück`, `leer`, `esc`, `hoch`, `runter`, `0`–`9`
+//! - eine Taste: `q`, `enter`, `rück`, `leer`, `esc`, `hoch`, `runter`, `links`, `rechts`, `0`–`9`
 //! - `antwort`: die richtige Lösung der offenen Aufgabe eintippen und abgeben
 //! - `boss`: direkt ans Levelende springen
 //! - `fortschritt P`: auf P Prozent des Levels springen
 //! - `treffer N`: das Schiff nimmt N Schaden (ohne Panzerung)
 //! - `sieg`: den Boss sofort besiegen
+//! - `bossleben N`: dem Boss bleiben noch N Lebenspunkte
 //! - `geld N`: N Credits aufs Konto
 //! - `tippe TEXT`: Text eintippen, etwa den Schiffsnamen
 //! - `maus X Y`: Mauszeiger auf X % der Breite und Y % der Höhe des Fensters
@@ -90,6 +91,8 @@ fn key(name: &str) -> Option<KeyCode> {
         "leer" => KeyCode::Space,
         "esc" => KeyCode::Escape,
         "hoch" => KeyCode::ArrowUp,
+        "links" => KeyCode::ArrowLeft,
+        "rechts" => KeyCode::ArrowRight,
         "runter" => KeyCode::ArrowDown,
         "w" => KeyCode::KeyW,
         "a" => KeyCode::KeyA,
@@ -200,6 +203,10 @@ fn play_script(
             ship.hull = Hull::from_index(n.saturating_sub(1));
         } else if let Some(n) = action.strip_prefix("panzerung ").and_then(|n| n.parse().ok()) {
             ship.armor = n;
+        } else if let Some(n) = action.strip_prefix("bossleben ").and_then(|n| n.parse::<f32>().ok()) {
+            if let Some(boss) = &mut boss {
+                boss.health = n;
+            }
         } else if action == "sieg" {
             if let Some(boss) = &mut boss {
                 boss.health = 0.0;

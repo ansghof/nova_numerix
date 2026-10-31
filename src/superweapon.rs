@@ -156,7 +156,11 @@ fn expand(
                 continue;
             }
             wave.hit.push(boss_entity);
+            let before = boss.health;
             boss.health -= wave.damage * SUPER_MULTIPLIER;
+            if before > 0.0 && boss.health <= 0.0 && wave.tier == 3 {
+                boss.super_finish = true;
+            }
             particles.sparks(&mut rng, pos, WHITE, 30, 450.0);
         }
 

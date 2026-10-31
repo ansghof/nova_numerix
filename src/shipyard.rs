@@ -11,7 +11,8 @@ use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
 use crate::AppState;
-use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted};
+use crate::difficulty::Difficulty;
+use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted, star_string};
 use crate::player::{Loadout, MAX_DRONES, MAX_LEVEL, MAX_SIDE, Player};
 use crate::ship::{Hull, MAX_ARMOR, Ship};
 use crate::quibbo::QuibboArt;
@@ -507,6 +508,7 @@ fn update(
     mut chips: ResMut<SlowChips>,
     mut player: Single<&mut Player>,
     mut vessel: ResMut<Ship>,
+    mut difficulty: ResMut<Difficulty>,
     campaign: Res<Campaign>,
     mut started: MessageWriter<LevelStarted>,
 ) {
@@ -521,10 +523,18 @@ fn update(
     match &mut yard.view {
         View::Hub { selected, level } => {
             if pressed(&keys, KeyCode::KeyW, KeyCode::ArrowUp) {
-                *selected = (*selected + 2) % 3;
+                *selected = (*selected + 3) % 4;
             }
             if pressed(&keys, KeyCode::KeyS, KeyCode::ArrowDown) {
-                *selected = (*selected + 1) % 3;
+                *selected = (*selected + 1) % 4;
+            }
+            if *selected == 3 {
+                if pressed(&keys, KeyCode::KeyA, KeyCode::ArrowLeft) {
+                    *difficulty = difficulty.cycle(true);
+                }
+                if pressed(&keys, KeyCode::KeyD, KeyCode::ArrowRight) {
+                    *difficulty = difficulty.cycle(false);
+                }
             }
             if *selected == 2 {
                 if pressed(&keys, KeyCode::KeyA, KeyCode::ArrowLeft) {
@@ -539,9 +549,10 @@ fn update(
                 match *selected {
                     0 => next_view = Some(View::Training { run: None, wait: 0.0, feedback: None, earned: 0 }),
                     1 => next_view = Some(View::Shop { selected: 0, haggle: None, feedback: None, intro: true }),
-                    _ => {
+                    2 => {
                         started.write(LevelStarted(*level));
                     }
+                    _ => *difficulty = difficulty.cycle(false),
                 }
             }
         }
@@ -577,7 +588,7 @@ fn update(
             } else {
                 *wait -= dt;
                 if *wait <= 0.0 {
-                    *run = Some(Run::new(topic.0.next(&mut rng)));
+                    *run = Some(Run::new(topic.next(&mut rng)));
                     changed = true;
                 }
             }
@@ -651,7 +662,7 @@ fn update(
                     } else if yard.haggled.contains(&item) {
                         Some(("„Über diesen Artikel haben wir schon geredet.“".into(), OKAY))
                     } else {
-                        *haggle = Some(Haggle { item, run: Run::new(topic.0.next(&mut rng)), result: None });
+                        *haggle = Some(Haggle { item, run: Run::new(topic.next(&mut rng)), result: None });
                         None
                     };
                 }
@@ -823,6 +834,7 @@ fn render(
     chips: Res<SlowChips>,
     player: Single<&Player>,
     vessel: Res<Ship>,
+    difficulty: Res<Difficulty>,
     campaign: Res<Campaign>,
     content: Single<Entity, With<Content>>,
     mut portrait: Single<(&mut Node, &mut ImageNode), With<QuibboPortrait>>,
@@ -854,13 +866,21 @@ fn render(
             let options = [
                 format!("Rechentraining: Aufgaben lösen, Credits verdienen (noch {left} voll)"),
                 "Quibbos Laden: Waffen, Reparatur und mehr kaufen".to_string(),
-                format!("Abflug  ◀  Level {}: {} · {}  ▶", level + 1, LEVELS[*level].world, LEVELS[*level].topic),
+                format!(
+                    "Abflug  ‹  Level {}: {} · {}  {}  ›",
+                    level + 1,
+                    LEVELS[*level].world,
+                    LEVELS[*level].topic,
+                    star_string(campaign.stars_of(*level))
+                ),
+                format!("Schwierigkeit  ‹  {}  ›  {}", difficulty.name(), difficulty.describe()),
             ];
             for (i, label) in options.into_iter().enumerate() {
                 let r = clickable_row(c, content, i, i == *selected);
                 text(c, r, label, TEXT, 20.0);
             }
-            text(c, content, "W/S oder Maus wählen · A/D Level wechseln · Enter oder Klick bestätigen", DIM, 14.0);
+            text(c, content, format!("Sterne: {} von {}", campaign.total_stars(), LEVELS.len() * 3), OKAY, 16.0);
+            text(c, content, "W/S oder Maus wählen · A/D Level oder Schwierigkeit wechseln · Enter oder Klick bestätigen", DIM, 14.0);
         }
         View::Training { run, feedback, earned, .. } => {
             text(c, content, "Rechentraining", FRAME, 32.0);

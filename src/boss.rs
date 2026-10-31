@@ -10,10 +10,11 @@
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::level::{Rewind, BossDef, BossStyle, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats};
+use crate::level::{Rewind, BossDef, BossStyle, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats, star_string};
 use crate::shipyard::{Credits, new_goods};
 use crate::neon::{GOLD, GREEN, MAGENTA, ORANGE, RED, Shape, WHITE, polygon, scaled};
 use crate::particles::Particles;
+use crate::difficulty::Difficulty;
 use crate::player::{Loadout, Player};
 use crate::rng::Rng;
 use crate::shots::{Friendly, Shot, Targetable, spawn_enemy_shot};
@@ -73,6 +74,8 @@ impl Plugin for BossPlugin {
 pub struct BossState {
     spawned: bool,
     pub defeated: bool,
+    /// Den letzten Schlag hat eine volle Superwaffen-Ladung (Stufe 3) gesetzt: dritter Stern.
+    pub super_finish: bool,
 }
 
 enum Round {
@@ -96,6 +99,8 @@ pub struct Boss {
     volley_timer: f32,
     volleys: u32,
     dying: Option<f32>,
+    /// Der Treffer, der ihn erledigt hat, kam von einer vollen Superwaffen-Ladung.
+    pub super_finish: bool,
 }
 
 impl Boss {
@@ -253,6 +258,7 @@ fn spawn_boss(
                 volley_timer: 3.0,
                 volleys: 0,
                 dying: None,
+                super_finish: false,
             },
             body_shape(def),
             Transform::from_xyz(field.half_width + 280.0, 0.0, 0.0),
@@ -405,7 +411,7 @@ fn distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
 }
 
 fn new_round(boss: &mut Boss, plates: &mut Query<&mut Plate>, topic: &mut Topic, rng: &mut Rng) {
-    let task = topic.0.next(rng);
+    let task = topic.next(rng);
     let mut values = if task.binary { binary_distractors(task.answer, rng) } else { distractors(task.answer, rng) };
     values.push(task.answer);
     for i in (1..values.len()).rev() {
@@ -699,7 +705,8 @@ fn dying(
     shake.0 = 22.0;
     score.0 += BOSS_POINTS;
     state.defeated = true;
-    info!("Boss besiegt");
+    state.super_finish = boss.super_finish;
+    info!("Boss besiegt{}", if boss.super_finish { " mit voller Superwaffe" } else { "" });
     commands.entity(entity).despawn();
     for banner in &banner {
         commands.entity(banner).despawn();
@@ -715,6 +722,14 @@ fn dying(
     pending.clear();
 }
 
+/// Was der Siegerbildschirm über Sterne und Schwierigkeit wissen muss.
+struct Result {
+    stars: [bool; 3],
+    percent: u32,
+    best: u8,
+    difficulty: Difficulty,
+}
+
 fn spawn_victory(
     commands: &mut Commands,
     name: &str,
@@ -724,6 +739,7 @@ fn spawn_victory(
     loadout: &Loadout,
     unlocked: Option<&LevelDef>,
     goods: Option<&str>,
+    result: &Result,
 ) {
     let root = commands
         .spawn((
@@ -774,6 +790,22 @@ fn spawn_victory(
     for (text, color, size) in lines {
         commands.spawn((Text::new(text), TextColor(color), font(size), ChildOf(panel)));
     }
+    // Die drei Sterne mit Erklärung, damit man weiß, wofür es den nächsten gibt.
+    let star_lines = [
+        "Level geschafft".to_string(),
+        format!("Mindestens 80 % richtig gerechnet (diesmal {} %)", result.percent),
+        if result.stars[2] {
+            "Den Boss mit voller Superwaffen-Ladung erledigt".to_string()
+        } else {
+            "Den Boss mit voller Superwaffen-Ladung erledigen (Tipp: eine Ladung aufheben und blitzschnell rechnen)".to_string()
+        },
+    ];
+    for (earned, line) in result.stars.iter().zip(star_lines) {
+        let (mark, color) = if *earned { ('★', OKAY) } else { ('☆', Color::srgb(0.55, 0.62, 0.75)) };
+        commands.spawn((Text::new(format!("{mark} {line}")), TextColor(color), font(17.0), ChildOf(panel)));
+    }
+    let best = format!("Bestwert für dieses Level: {} · Schwierigkeit: {}", star_string(result.best), result.difficulty.name());
+    commands.spawn((Text::new(best), TextColor(TEXT), font(15.0), ChildOf(panel)));
     if let Some(level) = unlocked {
         let message = format!("Neues Level freigeschaltet: {} · {}", level.world, level.topic);
         commands.spawn((Text::new(message), TextColor(GOOD), font(18.0), ChildOf(panel)));
@@ -799,6 +831,7 @@ fn victory(
     mut credits: ResMut<Credits>,
     mut campaign: ResMut<Campaign>,
     current: Res<CurrentLevel>,
+    difficulty: Res<Difficulty>,
     mut next: ResMut<NextState<AppState>>,
     mut waited: Local<f32>,
     mut shown: Local<bool>,
@@ -820,7 +853,17 @@ fn victory(
         let beaten_before = campaign.beaten;
         campaign.beaten = campaign.beaten.max(current.0 + 1);
         let goods = (campaign.beaten > beaten_before).then(|| new_goods(campaign.beaten)).flatten();
-        spawn_victory(&mut commands, current.def().boss.name, score.0, earned, &stats, &loadout, unlocked, goods);
+        // Sterne: geschafft, mindestens 80 % richtig, Boss mit voller Superwaffe erledigt.
+        let total = stats.correct + stats.timed_out + stats.wrong;
+        let percent = if total > 0 { stats.correct * 100 / total } else { 0 };
+        let earned_stars = [true, total > 0 && percent >= 80, state.super_finish];
+        let mask = earned_stars.iter().enumerate().fold(0u8, |m, (i, s)| if *s { m | 1 << i } else { m });
+        if let Some(best) = campaign.stars.get_mut(current.0) {
+            *best |= mask;
+        }
+        info!("Sterne: {}", star_string(mask));
+        let result = Result { stars: earned_stars, percent, best: campaign.stars_of(current.0), difficulty: *difficulty };
+        spawn_victory(&mut commands, current.def().boss.name, score.0, earned, &stats, &loadout, unlocked, goods, &result);
     }
     // Nach dem großen Knall die Welt anhalten, bis es weitergeht.
     *waited += real.delta_secs();

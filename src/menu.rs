@@ -13,6 +13,7 @@ use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
 use crate::AppState;
+use crate::difficulty::Difficulty;
 use crate::save::{DEFAULT_SHIP_NAME, MAX_NAME_LENGTH, SLOTS, Saves, load_game, new_game};
 
 /// Bilder relativ zum Ordner `assets`. Fehlt das Splash-Bild, zeigt der Splash das Menübild.
@@ -88,7 +89,7 @@ enum SlotMode {
 enum Page {
     Main { selected: usize },
     Slots { mode: SlotMode, selected: usize, confirm_overwrite: bool, note: Option<String> },
-    Name { slot: usize, name: String },
+    Name { slot: usize, name: String, difficulty: Difficulty },
 }
 
 #[derive(Resource)]
@@ -127,7 +128,7 @@ impl Menu {
             Page::Slots { mode, confirm_overwrite, note, .. } => {
                 format!("slots {} {confirm_overwrite} {note:?}", *mode == SlotMode::NewGame)
             }
-            Page::Name { slot, name } => format!("name {slot} {name}"),
+            Page::Name { slot, name, difficulty } => format!("name {slot} {name} {}", difficulty.name()),
         }
     }
 }
@@ -306,15 +307,24 @@ fn navigate(
                     SlotMode::Load if occupied => commands.run_system_cached_with(load_game, *selected),
                     SlotMode::Load => *note = Some("Dieser Slot ist leer.".into()),
                     SlotMode::NewGame if occupied && !*confirm_overwrite => *confirm_overwrite = true,
-                    SlotMode::NewGame => new_page = Some(Page::Name { slot: *selected, name: DEFAULT_SHIP_NAME.into() }),
+                    SlotMode::NewGame => {
+                        new_page = Some(Page::Name { slot: *selected, name: DEFAULT_SHIP_NAME.into(), difficulty: Difficulty::Pilot })
+                    }
                 }
             }
         }
-        Page::Name { slot, name } => {
+        Page::Name { slot, name, difficulty } => {
+            // Pfeiltasten tippen keine Buchstaben, deshalb wählen sie hier den Grad.
+            if keys.just_pressed(KeyCode::ArrowLeft) {
+                *difficulty = difficulty.cycle(true);
+            }
+            if keys.just_pressed(KeyCode::ArrowRight) || clicked == Some(2) {
+                *difficulty = difficulty.cycle(false);
+            }
             if back {
                 new_page = Some(Page::Slots { mode: SlotMode::NewGame, selected: *slot, confirm_overwrite: false, note: None });
             } else if (pressed(KeyCode::Enter, KeyCode::NumpadEnter) || clicked == Some(1)) && !name.trim().is_empty() {
-                commands.run_system_cached_with(new_game, (*slot, name.trim().to_string()));
+                commands.run_system_cached_with(new_game, (*slot, name.trim().to_string(), *difficulty));
             }
         }
     }
@@ -460,13 +470,16 @@ fn render(
                 hint(c, column, "W/S oder Maus wählen · Enter oder Klick bestätigen · Esc zurück");
             }
         }
-        Page::Name { slot, name } => {
+        Page::Name { slot, name, difficulty } => {
             text(c, column, format!("Slot {} · Wie heißt dein Schiff?", slot + 1), TEXT, 24.0);
             let field = row(c, column, 0, true, 420.0);
             text(c, field, format!("{name}_"), TEXT, 30.0);
+            let level = row(c, column, 2, false, 420.0);
+            text(c, level, format!("Schwierigkeit  ‹  {}  ›", difficulty.name()), TEXT, 20.0);
+            text(c, level, difficulty.describe(), DIM, 14.0);
             let go = row(c, column, 1, false, 280.0);
             text(c, go, "Losfliegen", TEXT, 22.0);
-            hint(c, column, "Namen tippen · Rücktaste löscht · Enter: losfliegen · Esc zurück");
+            hint(c, column, "Namen tippen · ←/→ Schwierigkeit (später in der Werft änderbar) · Enter: losfliegen · Esc zurück");
         }
     }
 }

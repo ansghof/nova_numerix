@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 
 use crate::neon::{CYAN, Shape, scaled};
+use crate::difficulty::Difficulty;
 use crate::player::Player;
 use crate::{GamePhase, Gameplay};
 
@@ -195,10 +196,11 @@ struct ArmorPlates;
 fn apply_ship(
     mut commands: Commands,
     ship: Res<Ship>,
+    difficulty: Res<Difficulty>,
     player: Single<(Entity, &mut Player, &mut Shape)>,
     plates: Query<Entity, With<ArmorPlates>>,
 ) {
-    if !ship.is_changed() {
+    if !ship.is_changed() && !difficulty.is_changed() {
         return;
     }
     let (entity, mut player, mut shape) = player.into_inner();
@@ -207,7 +209,8 @@ fn apply_ship(
     shape.visible = visible;
     player.max_health = ship.hull.max_health();
     player.health = player.health.min(player.max_health);
-    player.armor = ship.damage_factor();
+    // Panzerung und Schwierigkeitsgrad bestimmen zusammen, wie viel ein Treffer kostet.
+    player.armor = ship.damage_factor() * difficulty.damage_factor();
 
     for plate in &plates {
         commands.entity(plate).despawn();

@@ -15,6 +15,7 @@ use crate::AppState;
 use crate::hud::Score;
 use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted, begin_level};
 use crate::player::{Loadout, MAX_HEALTH, Player};
+use crate::difficulty::Difficulty;
 use crate::ship::{Hull, Ship};
 use crate::shipyard::Credits;
 use crate::superweapon::SuperWeapon;
@@ -104,12 +105,13 @@ impl Saves {
             let raw = self.storage.read(slot)?;
             Some(match ron::from_str::<SaveData>(&raw) {
                 Ok(data) if data.version == VERSION => {
-                    let level = &LEVELS[data.level.min(LEVELS.len() - 1)];
+                    let stars: u32 = data.stars.iter().map(|mask| mask.count_ones()).sum();
                     let detail = format!(
-                        "{} von {} Leveln frei · zuletzt {} · {} Credits",
+                        "{} von {} Leveln frei · ★ {stars}/{} · {} · {} Credits",
                         data.unlocked,
                         LEVELS.len(),
-                        level.world,
+                        LEVELS.len() * 3,
+                        data.difficulty.name(),
                         data.credits
                     );
                     (format!("{} · {}", data.ship_name, data.saved_at), detail)
@@ -158,13 +160,17 @@ pub struct SaveData {
     /// Fehlt in älteren Ständen; dann zählt jedes freigeschaltete Level als besiegt.
     #[serde(default)]
     beaten: usize,
+    #[serde(default)]
+    stars: Vec<u8>,
+    #[serde(default)]
+    difficulty: Difficulty,
     level: usize,
     score: u32,
     mastery: Vec<(String, Vec<f32>)>,
 }
 
 impl SaveData {
-    fn new_game(ship_name: String) -> Self {
+    fn new_game(ship_name: String, difficulty: Difficulty) -> Self {
         let loadout = Loadout::default();
         Self {
             version: VERSION,
@@ -182,6 +188,8 @@ impl SaveData {
             slow_chips: 0,
             unlocked: 1,
             beaten: 0,
+            stars: Vec::new(),
+            difficulty,
             level: 0,
             score: 0,
             mastery: Vec::new(),
@@ -196,6 +204,7 @@ pub struct GameState<'w, 's> {
     credits: ResMut<'w, Credits>,
     loadout: ResMut<'w, Loadout>,
     ship: ResMut<'w, Ship>,
+    difficulty: ResMut<'w, Difficulty>,
     weapon: ResMut<'w, SuperWeapon>,
     chips: ResMut<'w, SlowChips>,
     campaign: ResMut<'w, Campaign>,
@@ -229,6 +238,8 @@ impl GameState<'_, '_> {
             slow_chips: self.chips.0,
             unlocked: self.campaign.unlocked,
             beaten: self.campaign.beaten,
+            stars: self.campaign.stars.clone(),
+            difficulty: *self.difficulty,
             level: self.current.0,
             score: self.score.0,
             mastery,
@@ -248,6 +259,10 @@ impl GameState<'_, '_> {
         self.chips.0 = data.slow_chips;
         self.campaign.unlocked = data.unlocked.clamp(1, LEVELS.len());
         self.campaign.beaten = data.beaten.max(self.campaign.unlocked - 1).min(LEVELS.len());
+        let mut stars = data.stars;
+        stars.resize(LEVELS.len(), 0);
+        self.campaign.stars = stars;
+        *self.difficulty = data.difficulty;
         self.current.0 = data.level.min(LEVELS.len() - 1);
         self.score.0 = data.score;
         self.mastery.0 = data.mastery.into_iter().collect();
@@ -284,9 +299,14 @@ fn save_on_departure(mut started: MessageReader<LevelStarted>, saves: Res<Saves>
 }
 
 /// Ein neues Spiel im gewählten Slot: frisches Schiff, erstes Level.
-pub fn new_game(input: In<(usize, String)>, mut saves: ResMut<Saves>, mut state: GameState, mut started: MessageWriter<LevelStarted>) {
-    let (slot, name) = input.0;
-    state.apply(SaveData::new_game(name));
+pub fn new_game(
+    input: In<(usize, String, Difficulty)>,
+    mut saves: ResMut<Saves>,
+    mut state: GameState,
+    mut started: MessageWriter<LevelStarted>,
+) {
+    let (slot, name, difficulty) = input.0;
+    state.apply(SaveData::new_game(name, difficulty));
     saves.active = Some(slot);
     started.write(LevelStarted(0));
 }

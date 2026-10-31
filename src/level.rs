@@ -173,12 +173,29 @@ impl CurrentLevel {
 pub struct Campaign {
     pub unlocked: usize,
     pub beaten: usize,
+    /// Je Level drei Sterne als Bits: geschafft, 80 % richtig, Boss mit voller Superwaffe.
+    pub stars: Vec<u8>,
 }
 
 impl Default for Campaign {
     fn default() -> Self {
-        Self { unlocked: 1, beaten: 0 }
+        Self { unlocked: 1, beaten: 0, stars: vec![0; LEVELS.len()] }
     }
+}
+
+impl Campaign {
+    pub fn stars_of(&self, level: usize) -> u8 {
+        self.stars.get(level).copied().unwrap_or(0)
+    }
+
+    pub fn total_stars(&self) -> u32 {
+        self.stars.iter().map(|mask| mask.count_ones()).sum()
+    }
+}
+
+/// Drei Sterne als Zeichen, gefüllt für jeden erreichten: „★★☆“.
+pub fn star_string(mask: u8) -> String {
+    (0..3).map(|i| if mask & (1 << i) != 0 { '★' } else { '☆' }).collect()
 }
 
 /// Ein Level beginnt. Jedes Modul räumt darauf hin seinen Teil auf: Gegner, Boss, Aufgaben,

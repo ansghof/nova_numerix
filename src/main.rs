@@ -2,6 +2,7 @@ mod background;
 mod boss;
 #[cfg(debug_assertions)]
 mod devtools;
+mod difficulty;
 mod enemy;
 mod hud;
 mod level;
@@ -132,7 +133,7 @@ fn main() {
             hud::HudPlugin,
             menu::MenuPlugin,
         ))
-        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin));
+        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin, difficulty::DifficultyPlugin));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);
     app.run();
