@@ -14,6 +14,8 @@ use bevy::prelude::*;
 
 use crate::AppState;
 use crate::difficulty::Difficulty;
+use crate::sound::play;
+use crate::synth::Sfx;
 use crate::save::{DEFAULT_SHIP_NAME, MAX_NAME_LENGTH, SLOTS, Saves, load_game, new_game};
 
 /// Bilder relativ zum Ordner `assets`. Fehlt das Splash-Bild, zeigt der Splash das Menübild.
@@ -258,6 +260,9 @@ fn navigate(
     let down = pressed(KeyCode::KeyS, KeyCode::ArrowDown);
     let confirm = pressed(KeyCode::Enter, KeyCode::NumpadEnter) || clicked.is_some();
     let back = keys.just_pressed(KeyCode::Escape);
+    if up || down || confirm || back {
+        play(&mut commands, Sfx::Click);
+    }
 
     let mut new_page = None;
     match &mut menu.page {
@@ -444,7 +449,7 @@ fn render(
                 let r = row(c, column, i, i == *selected, 280.0);
                 text(c, r, label, TEXT, 24.0);
             }
-            hint(c, column, "W/S, Pfeiltasten oder Maus wählen · Enter oder Klick bestätigen · im Flug: Esc für dieses Menü");
+            hint(c, column, "W/S, Pfeiltasten oder Maus wählen · Enter oder Klick bestätigen · im Flug: Esc für dieses Menü · M Musik, N Geräusche");
         }
         Page::Slots { mode, selected, confirm_overwrite, note } => {
             let title = match mode {

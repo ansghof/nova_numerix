@@ -20,6 +20,8 @@ use crate::ship::Ship;
 use crate::task::Reward;
 use crate::shipyard::Credits;
 use crate::shots::{Targetable, spawn_enemy_shot};
+use crate::sound::play;
+use crate::synth::Sfx;
 use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield, Shake};
 
 /// So weit rechts außerhalb des sichtbaren Felds tauchen Gegner auf.
@@ -815,6 +817,7 @@ fn destroy(
         shape.color = enemy.color;
         let size = if matches!(enemy.kind, EnemyKind::Freighter | EnemyKind::Cruiser) { 1.6 } else { 1.0 };
         particles.explode(&mut rng, &shape, transform, size);
+        play(&mut commands, Sfx::Explosion);
         // Eine Mine, die von selbst hochgeht: Schussring, keine Punkte, die Welle gilt als entkommen.
         if enemy.detonated {
             info!("Mine gezündet");

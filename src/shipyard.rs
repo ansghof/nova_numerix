@@ -17,6 +17,8 @@ use crate::player::{Loadout, MAX_DRONES, MAX_LEVEL, MAX_SIDE, Player};
 use crate::ship::{Hull, MAX_ARMOR, Ship};
 use crate::quibbo::QuibboArt;
 use crate::rng::Rng;
+use crate::sound::{PlaySfx, outcome_sfx};
+use crate::synth::Sfx;
 use crate::superweapon::SuperWeapon;
 use crate::task::{FAST_SHARE, Outcome, SlowChips, Task, Topic, read_digit};
 
@@ -511,6 +513,7 @@ fn update(
     mut difficulty: ResMut<Difficulty>,
     campaign: Res<Campaign>,
     mut started: MessageWriter<LevelStarted>,
+    mut sfx: MessageWriter<PlaySfx>,
 ) {
     let dt = time.delta_secs();
     // Zeitbalken laufen jedes Bild; neu gezeichnet wird nur, wenn sich etwas Sichtbares ändert.
@@ -518,6 +521,13 @@ fn update(
     let yard = shipyard.bypass_change_detection();
     let clicked = yard.clicked.take();
     let confirm = |keys: &ButtonInput<KeyCode>| confirm(keys) || clicked.is_some();
+    // Ein leises Klicken beim Blättern und Bestätigen; beim Tippen von Ziffern nicht.
+    let navigated = [KeyCode::KeyW, KeyCode::KeyS, KeyCode::KeyA, KeyCode::KeyD, KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::Escape]
+        .iter()
+        .any(|k| keys.just_pressed(*k));
+    if navigated || clicked.is_some() {
+        sfx.write(PlaySfx(Sfx::Click));
+    }
     let mut next_view = None;
 
     match &mut yard.view {
@@ -561,6 +571,7 @@ fn update(
                 next_view = Some(View::Hub { selected: 0, level: 0 });
             } else if let Some(current) = run {
                 if let Some(outcome) = current.feed(&keys, dt) {
+                    sfx.write(PlaySfx(outcome_sfx(&outcome)));
                     topic.0.record(&current.task, &outcome);
                     let solution = current.task.solution();
                     match outcome {
@@ -613,6 +624,7 @@ fn update(
                 } else if keys.just_pressed(KeyCode::Escape) {
                     *haggle = None;
                 } else if let Some(outcome) = h.run.feed(&keys, dt) {
+                    sfx.write(PlaySfx(outcome_sfx(&outcome)));
                     topic.0.record(&h.run.task, &outcome);
                     let (discount, text, color) = match outcome {
                         Outcome::Correct { remaining_share } => {
@@ -696,6 +708,7 @@ fn update(
                                     Item::SlowChip => chips.0 += CHIPS_PER_PACK,
                                 }
                                 yard.mood = (Mood::Pleased, MOOD_TIME);
+                                sfx.write(PlaySfx(Sfx::Buy));
                                 (format!("Gekauft: {name} für {price} Credits."), GOOD)
                             }
                         }

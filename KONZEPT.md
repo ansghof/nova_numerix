@@ -284,6 +284,21 @@ Dunkler Hintergrund, alles Wichtige leuchtet (Linien mit HDR-Farben + Bloom).
 Hintergrund in drei Parallax-Ebenen. Explosionen aus auseinanderfliegenden, nachglühenden
 Linienfragmenten.
 
+## Ton (umgesetzt)
+
+Alle Geräusche und die Musik entstehen beim Start im Code (Rechteck, Dreieck, Sägezahn,
+Rauschen), es gibt keine Tondateien. Die Musikstücke werden im Hintergrund erzeugt.
+
+- Musik: ruhiges Stück für Menü und Werft, je Level ein eigenes (a-Moll, d-Moll, e-Moll,
+  cis-Moll, unterschiedlich schnell), ein schnelleres im Bosskampf. Wechsel werden
+  überblendet; während der Boss explodiert, ist Stille, dann folgt eine kleine Siegesfanfare.
+  Während einer Aufgabe wird die Musik leiser.
+- Geräusche: Laser, Raketen, Explosionen, Treffer am Schiff, Schiffsverlust, Aufgabe öffnet,
+  richtig / blitzschnell / falsch (bewusst sanft) / Zeit um, Superwaffe, ausgelöschte Welle,
+  Checkpoint, Boss-Alarm, Klicks in Menü und Werft, Kauf.
+- M schaltet die Musik, N die Geräusche an und aus (nicht im Menü, dort wird getippt).
+- Zum Anhören schreibt `cargo test` alle Klänge nach `target/sounds`.
+
 ## Technik
 
 - Bevy 0.20, Zustände `AppState`, im Level SubStates (`Flying`, `TaskPopup`, …).

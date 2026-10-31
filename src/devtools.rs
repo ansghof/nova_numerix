@@ -99,6 +99,8 @@ fn key(name: &str) -> Option<KeyCode> {
         "s" => KeyCode::KeyS,
         "d" => KeyCode::KeyD,
         "v" => KeyCode::KeyV,
+        "m" => KeyCode::KeyM,
+        "n" => KeyCode::KeyN,
         _ => digit(name.parse().ok()?)?,
     })
 }

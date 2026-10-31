@@ -16,7 +16,9 @@ mod save;
 mod ship;
 mod shipyard;
 mod shots;
+mod sound;
 mod superweapon;
+mod synth;
 mod task;
 
 use bevy::camera::{Hdr, ScalingMode};
@@ -133,7 +135,7 @@ fn main() {
             hud::HudPlugin,
             menu::MenuPlugin,
         ))
-        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin, difficulty::DifficultyPlugin));
+        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin, difficulty::DifficultyPlugin, sound::SoundPlugin));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);
     app.run();

@@ -13,6 +13,8 @@ use crate::ship::Hull;
 use crate::particles::Particles;
 use crate::rng::Rng;
 use crate::shots;
+use crate::sound::play;
+use crate::synth::Sfx;
 use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield, Shake};
 
 /// Schild des Startrumpfs; größere Rümpfe tragen mehr, siehe [`Player::max_health`].
@@ -255,6 +257,7 @@ fn fire(
 
     if player.laser_cooldown <= 0.0 {
         player.laser_cooldown = LASER_COOLDOWN;
+        play(&mut commands, Sfx::Laser);
         let n = loadout.laser as usize;
         for i in 0..n {
             let offset = i as f32 - (n - 1) as f32 / 2.0;
@@ -286,6 +289,7 @@ fn fire(
 
     if loadout.missiles > 0 && player.missile_cooldown <= 0.0 {
         player.missile_cooldown = MISSILE_COOLDOWN;
+        play(&mut commands, Sfx::Missile);
         for i in 0..loadout.missiles {
             let side = if i % 2 == 0 { 1.0 } else { -1.0 };
             let dir = Vec2::new(0.6, side * 0.8 * (1.0 + i as f32 * 0.3)).normalize();
