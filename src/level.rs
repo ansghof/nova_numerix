@@ -5,10 +5,10 @@
 use bevy::prelude::*;
 
 use crate::enemy::Formation;
-use crate::neon::{GOLD, GREEN, MAGENTA, ORANGE, VIOLET};
+use crate::neon::{GOLD, GREEN, ICE, MAGENTA, ORANGE, VIOLET};
 use crate::save::Mastery;
 use crate::shipyard::Credits;
-use crate::task::{BigTimesTable, BinaryNumbers, RomanNumerals, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
+use crate::task::{BigTimesTable, BinaryNumbers, NegativeNumbers, RomanNumerals, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
 use crate::{AppState, GamePhase, Gameplay};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
@@ -65,6 +65,8 @@ pub enum BossStyle {
     Processor,
     /// Ein Legionärsschild mit Helmbusch
     Shield,
+    /// Ein riesiger Eiskristall mit sechs verzweigten Armen
+    Crystal,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -77,6 +79,8 @@ pub enum Backdrop {
     DataRain,
     /// Ein roter Planet mit Kratern
     RedPlanet,
+    /// Ein Eismond am oberen Rand und quer durchs Bild die Nulllinie eines Zahlenstrahls
+    IceMoon,
 }
 
 fn small_times_table() -> Box<dyn TaskGenerator> {
@@ -99,7 +103,11 @@ fn roman_numerals() -> Box<dyn TaskGenerator> {
     Box::new(RomanNumerals::new())
 }
 
-pub const LEVELS: [LevelDef; 5] = [
+fn negative_numbers() -> Box<dyn TaskGenerator> {
+    Box::new(NegativeNumbers::new())
+}
+
+pub const LEVELS: [LevelDef; 6] = [
     LevelDef {
         world: "Neonnebel",
         topic: "Kleines 1×1",
@@ -179,6 +187,24 @@ pub const LEVELS: [LevelDef; 5] = [
             Formation::Testudo,
             Formation::Pincer,
             Formation::Cruisers,
+        ],
+    },
+    LevelDef {
+        world: "Eismond",
+        topic: "Negative Zahlen",
+        grid: LinearRgba::rgb(0.12, 0.3, 0.65),
+        backdrop: Backdrop::IceMoon,
+        boss: BossDef { name: "Der Frostkristall", color: ICE, style: BossStyle::Crystal },
+        make_topic: negative_numbers,
+        // Frostlinge pendeln über die Nulllinie und sind nur oben, im Plus, verwundbar.
+        formations: &[
+            Formation::ZeroLine,
+            Formation::ZeroLine,
+            Formation::Arrow,
+            Formation::MineField,
+            Formation::ZeroLine,
+            Formation::Dive,
+            Formation::Seekers,
         ],
     },
 ];

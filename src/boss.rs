@@ -120,7 +120,7 @@ impl Boss {
 
 #[derive(Component)]
 pub struct Plate {
-    value: u32,
+    value: i32,
     pub correct: bool,
     opened: bool,
     /// Animation von geschlossen (0) zu offen (1).
@@ -218,6 +218,23 @@ fn body_shape(def: &BossDef) -> Shape {
         for i in 0..9 {
             let y = -160.0 + i as f32 * 40.0;
             shape = shape.open(&[Vec2::new(85.0, y), Vec2::new(150.0 + (i as f32 - 4.0).abs() * -8.0, y + 12.0)]);
+        }
+        return shape.closed(&core_ring);
+    }
+    if def.style == BossStyle::Crystal {
+        // Ein Eiskristall: Sechseck in der Mitte, sechs Arme mit Seitenzweigen.
+        let center = Vec2::new(40.0, 0.0);
+        let mut shape = Shape::new(def.color)
+            .closed(&polygon(6, 150.0, 0.0).iter().map(|p| *p + center).collect::<Vec<_>>())
+            .closed(&polygon(6, 95.0, std::f32::consts::FRAC_PI_6).iter().map(|p| *p + center).collect::<Vec<_>>());
+        for i in 0..6 {
+            let dir = Vec2::from_angle(i as f32 * std::f32::consts::FRAC_PI_3);
+            let side = dir.perp();
+            shape = shape.open(&[center + dir * 150.0, center + dir * 225.0]);
+            for (along, spread) in [(170.0, 28.0), (200.0, 18.0)] {
+                let root = center + dir * along;
+                shape = shape.open(&[root + side * spread + dir * 20.0, root, root - side * spread + dir * 20.0]);
+            }
         }
         return shape.closed(&core_ring);
     }
@@ -406,15 +423,15 @@ fn move_boss(
 }
 
 /// Drei falsche, aber plausible Binärzahlen: dieselbe Zahl mit einem umgekippten Bit.
-fn binary_distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
-    let n = from_binary_digits(answer).unwrap_or(1);
+fn binary_distractors(answer: i32, rng: &mut Rng) -> Vec<i32> {
+    let n = from_binary_digits(answer.max(0) as u32).unwrap_or(1);
     let mut out = Vec::new();
     for _ in 0..100 {
         if out.len() == 3 {
             break;
         }
         let candidate = n ^ (1 << rng.below(4));
-        let digits = binary_digits(candidate);
+        let digits = binary_digits(candidate) as i32;
         if candidate > 0 && candidate != n && !out.contains(&digits) {
             out.push(digits);
         }
@@ -423,10 +440,10 @@ fn binary_distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
 }
 
 /// Drei falsche, aber plausible Ergebnisse: Nachbarn, Zehnersprünge, vertauschte Ziffern.
-fn distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
-    const OFFSETS: [u32; 9] = [1, 2, 3, 4, 5, 6, 8, 10, 12];
+fn distractors(answer: i32, rng: &mut Rng) -> Vec<i32> {
+    const OFFSETS: [i32; 9] = [1, 2, 3, 4, 5, 6, 8, 10, 12];
     let mut out = Vec::new();
-    let reversed: u32 = answer.to_string().chars().rev().collect::<String>().parse().unwrap_or(0);
+    let reversed: i32 = answer.to_string().chars().rev().collect::<String>().parse().unwrap_or(0);
     if answer >= 10 && reversed != answer && reversed > 0 && rng.chance(0.6) {
         out.push(reversed);
     }
@@ -435,8 +452,29 @@ fn distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
             break;
         }
         let offset = OFFSETS[rng.below(OFFSETS.len())];
-        let candidate = if rng.chance(0.5) { answer + offset } else { answer.saturating_sub(offset) };
+        let candidate = if rng.chance(0.5) { answer + offset } else { answer - offset };
         if candidate > 0 && candidate != answer && !out.contains(&candidate) {
+            out.push(candidate);
+        }
+    }
+    out
+}
+
+/// Bei negativen Zahlen der typische Fehler zuerst: das falsche Vorzeichen. Dazu Nachbarn, die
+/// auch auf der anderen Seite der Null liegen dürfen.
+fn signed_distractors(answer: i32, rng: &mut Rng) -> Vec<i32> {
+    const OFFSETS: [i32; 6] = [1, 2, 3, 4, 5, 10];
+    let mut out = Vec::new();
+    if answer != 0 {
+        out.push(-answer);
+    }
+    for _ in 0..100 {
+        if out.len() == 3 {
+            break;
+        }
+        let offset = OFFSETS[rng.below(OFFSETS.len())];
+        let candidate = if rng.chance(0.5) { answer + offset } else { answer - offset };
+        if candidate != answer && !out.contains(&candidate) {
             out.push(candidate);
         }
     }
@@ -445,8 +483,11 @@ fn distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
 
 fn new_round(boss: &mut Boss, plates: &mut Query<&mut Plate>, topic: &mut Topic, rng: &mut Rng) {
     let task = topic.next(rng);
-    let mut values =
-        if task.style == AnswerStyle::Binary { binary_distractors(task.answer, rng) } else { distractors(task.answer, rng) };
+    let mut values = match task.style {
+        AnswerStyle::Binary => binary_distractors(task.answer, rng),
+        AnswerStyle::Signed => signed_distractors(task.answer, rng),
+        _ => distractors(task.answer, rng),
+    };
     values.push(task.answer);
     for i in (1..values.len()).rev() {
         values.swap(i, rng.below(i + 1));
@@ -668,7 +709,7 @@ fn animate(
             if font.font_size != size {
                 font.font_size = size;
             }
-            let show = plate.value > 0 && plate.open < 0.5 && !boss.core_open();
+            let show = boss.task.is_some() && plate.open < 0.5 && !boss.core_open();
             *visibility = if show { Visibility::Inherited } else { Visibility::Hidden };
         }
     }

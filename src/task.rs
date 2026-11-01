@@ -78,7 +78,8 @@ impl Plugin for TaskPlugin {
 pub struct Task {
     /// Die Aufgabe mit `?` an der gesuchten Stelle, etwa „7 × 8 = ?“ oder „3 × ? = 15“.
     pub prompt: String,
-    pub answer: u32,
+    /// Die gesuchte Zahl; bei Brüchen kodiert, siehe [`fraction`].
+    pub answer: i32,
     /// Kennung des Rechenfakts, damit schwache Fakten öfter wiederkommen.
     pub fact: usize,
     /// Zeitlimit in echten Sekunden.
@@ -101,42 +102,94 @@ impl Task {
     }
 
     /// Eine Zahl so, wie sie als Antwort aussieht: Binärzahlen vierstellig mit führenden Nullen,
-    /// römische Zahlen in Buchstaben.
-    pub fn show(&self, value: u32) -> String {
+    /// römische Zahlen in Buchstaben, Brüche mit Bruchstrich.
+    pub fn show(&self, value: i32) -> String {
         match self.style {
-            AnswerStyle::Number => value.to_string(),
+            AnswerStyle::Number | AnswerStyle::Signed => value.to_string(),
             AnswerStyle::Binary => format!("{value:04}"),
-            AnswerStyle::Roman => roman(value),
+            AnswerStyle::Roman => roman(value.max(0) as u32),
+            AnswerStyle::Fraction => {
+                let (numerator, denominator) = split_fraction(value);
+                format!("{numerator}/{denominator}")
+            }
         }
     }
 
-    /// Ein Zeichen der Eingabe: Ziffern, bei römischen Antworten die Buchstaben I, V, X, L, C.
-    pub fn read_key(&self, keys: &ButtonInput<KeyCode>) -> Option<char> {
+    /// Ein Zeichen der Eingabe: Ziffern, bei römischen Antworten die Buchstaben I, V, X, L, C,
+    /// bei negativen Zahlen das Minus, bei Brüchen der Bruchstrich.
+    fn read_key(&self, keys: &ButtonInput<KeyCode>) -> Option<char> {
+        let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
         match self.style {
             AnswerStyle::Roman => {
                 const LETTERS: [(KeyCode, char); 5] =
                     [(KeyCode::KeyI, 'I'), (KeyCode::KeyV, 'V'), (KeyCode::KeyX, 'X'), (KeyCode::KeyL, 'L'), (KeyCode::KeyC, 'C')];
                 LETTERS.iter().find(|(key, _)| keys.just_pressed(*key)).map(|(_, c)| *c)
             }
+            // Das Minus liegt je nach Tastatur woanders: Nummernblock, „-“ auf der deutschen
+            // Tastatur (dort, wo auf der englischen „/“ sitzt) oder „-“ auf der englischen.
+            AnswerStyle::Signed
+                if keys.any_just_pressed([KeyCode::NumpadSubtract, KeyCode::Slash, KeyCode::Minus]) =>
+            {
+                Some('-')
+            }
+            // Bruchstrich: „/“ auf dem Nummernblock, Umschalt+7 auf der deutschen Tastatur oder
+            // einfach die Leertaste.
+            AnswerStyle::Fraction
+                if keys.any_just_pressed([KeyCode::NumpadDivide, KeyCode::Space])
+                    || (shift && keys.just_pressed(KeyCode::Digit7)) =>
+            {
+                Some('/')
+            }
             _ => read_digit(keys),
+        }
+    }
+
+    /// Verarbeitet die Tasten dieses Frames: ein neues Zeichen, sofern es an dieser Stelle Sinn
+    /// ergibt, und die Rücktaste.
+    pub fn type_into(&self, input: &mut String, keys: &ButtonInput<KeyCode>) {
+        if let Some(key) = self.read_key(keys) {
+            let fits = match key {
+                // Das Minus nur ganz vorn.
+                '-' => input.is_empty(),
+                // Ein Bruchstrich, und erst nach dem Zähler.
+                '/' => !input.is_empty() && !input.contains('/'),
+                _ => true,
+            };
+            if fits && input.len() < self.max_len() {
+                input.push(key);
+            }
+        }
+        if keys.just_pressed(KeyCode::Backspace) {
+            input.pop();
         }
     }
 
     /// Womit man die Antwort eintippt.
     pub fn input_hint(&self) -> &'static str {
-        if self.style == AnswerStyle::Roman { "Tasten I V X L C" } else { "Nummernblock" }
+        match self.style {
+            AnswerStyle::Roman => "Tasten I V X L C",
+            AnswerStyle::Signed => "Ziffern · Minus-Taste",
+            AnswerStyle::Fraction => "Ziffern · Bruchstrich: / oder Leertaste",
+            _ => "Nummernblock",
+        }
     }
 
-    /// Längste sinnvolle Eingabe; LXXXVIII (88) hat acht Zeichen.
-    pub fn max_len(&self) -> usize {
-        if self.style == AnswerStyle::Roman { 9 } else { 4 }
+    /// Längste sinnvolle Eingabe; LXXXVIII (88) hat acht Zeichen, „-20“ drei, „12/25“ fünf.
+    fn max_len(&self) -> usize {
+        match self.style {
+            AnswerStyle::Roman => 9,
+            AnswerStyle::Fraction => 5,
+            _ => 4,
+        }
     }
 
-    /// Ob die Eingabe stimmt. Römisch zählt nur die übliche Schreibweise: XL, nicht XXXX.
+    /// Ob die Eingabe stimmt. Römisch zählt nur die übliche Schreibweise: XL, nicht XXXX. Brüche
+    /// müssen ganz gekürzt sein: 4/6 hat zwar den Wert von 2/3, ist aber nicht fertig.
     pub fn check(&self, input: &str) -> bool {
         match self.style {
-            AnswerStyle::Roman => input == roman(self.answer),
-            _ => input.parse::<u32>() == Ok(self.answer),
+            AnswerStyle::Roman => input == self.show(self.answer),
+            AnswerStyle::Fraction => input == self.show(self.answer),
+            _ => input.parse::<i32>() == Ok(self.answer),
         }
     }
 }
@@ -150,6 +203,26 @@ pub enum AnswerStyle {
     Binary,
     /// Eine römische Zahl, getippt mit den Buchstabentasten.
     Roman,
+    /// Eine ganze Zahl, die auch negativ sein kann; das Minus kommt zuerst.
+    Signed,
+    /// Ein gekürzter Bruch wie „2/3“; die Antwort ist mit [`fraction`] kodiert.
+    Fraction,
+}
+
+/// Ein Bruch als eine Zahl, damit er wie jede andere Antwort durchs Spiel wandern kann:
+/// 2/3 → 203. Nenner bleiben unter 100.
+pub fn fraction(numerator: i32, denominator: i32) -> i32 {
+    numerator * 100 + denominator
+}
+
+/// Umkehrung von [`fraction`]: 203 → (2, 3).
+pub fn split_fraction(value: i32) -> (i32, i32) {
+    (value / 100, value % 100)
+}
+
+/// Größter gemeinsamer Teiler.
+pub fn gcd(a: i32, b: i32) -> i32 {
+    if b == 0 { a.abs() } else { gcd(b, a % b) }
 }
 
 /// Eine Zahl von 1 bis 3999 in römischer Schreibweise: 47 → XLVII.
@@ -263,9 +336,9 @@ impl TaskGenerator for SmallTimesTable {
             // Lücken brauchen einen Gedanken mehr, also eine Sekunde mehr Zeit.
             let (prompt, answer) =
                 if rng.chance(0.5) { (format!("{a} × ? = {product}"), b) } else { (format!("? × {b} = {product}"), a) };
-            Task { prompt, answer, fact, time_limit: 7.0, ..Default::default() }
+            Task { prompt, answer: answer as i32, fact, time_limit: 7.0, ..Default::default() }
         } else {
-            Task { prompt: format!("{a} × {b} = ?"), answer: product, fact, time_limit: 6.0, ..Default::default() }
+            Task { prompt: format!("{a} × {b} = ?"), answer: product as i32, fact, time_limit: 6.0, ..Default::default() }
         }
     }
 
@@ -307,9 +380,9 @@ impl TaskGenerator for Squares {
         let n = Self::LOW + fact as u32;
         let square = n * n;
         if rng.chance(Self::GAP_SHARE) {
-            Task { prompt: format!("?² = {square}"), answer: n, fact, time_limit: 8.0, ..Default::default() }
+            Task { prompt: format!("?² = {square}"), answer: n as i32, fact, time_limit: 8.0, ..Default::default() }
         } else {
-            Task { prompt: format!("{n}² = ?"), answer: square, fact, time_limit: 7.0, ..Default::default() }
+            Task { prompt: format!("{n}² = ?"), answer: square as i32, fact, time_limit: 7.0, ..Default::default() }
         }
     }
 
@@ -363,11 +436,11 @@ impl TaskGenerator for BigTimesTable {
         if rng.chance(Self::GAP_SHARE) {
             let (prompt, answer) =
                 if rng.chance(0.5) { (format!("{a} × ? = {product}"), b) } else { (format!("? × {b} = {product}"), a) };
-            Task { prompt, answer, fact, time_limit: 12.0, ..Default::default() }
+            Task { prompt, answer: answer as i32, fact, time_limit: 12.0, ..Default::default() }
         } else {
             // Mal steht die große Zahl vorn, mal hinten.
             let prompt = if rng.chance(0.5) { format!("{a} × {b} = ?") } else { format!("{b} × {a} = ?") };
-            Task { prompt, answer: product, fact, time_limit: 11.0, ..Default::default() }
+            Task { prompt, answer: product as i32, fact, time_limit: 11.0, ..Default::default() }
         }
     }
 
@@ -413,9 +486,9 @@ impl TaskGenerator for BinaryNumbers {
         let n = fact as u32 / 2 + 1;
         let hint = Some(Self::HINT);
         if fact % 2 == 0 {
-            Task { prompt: format!("{n:04b}₂ = ?"), answer: n, fact, time_limit: 10.0, hint, ..Default::default() }
+            Task { prompt: format!("{n:04b}₂ = ?"), answer: n as i32, fact, time_limit: 10.0, hint, ..Default::default() }
         } else {
-            let answer = binary_digits(n);
+            let answer = binary_digits(n) as i32;
             Task { prompt: format!("{n} = ?₂"), answer, fact, time_limit: 12.0, style: AnswerStyle::Binary, hint }
         }
     }
@@ -470,16 +543,74 @@ impl TaskGenerator for RomanNumerals {
         self.last = Some(fact);
         let n = fact as u32 / 2 + 1;
         if fact % 2 == 0 {
-            Task { prompt: format!("{} = ?", roman(n)), answer: n, fact, time_limit: 10.0, hint: Some(Self::HINT), ..Default::default() }
+            Task { prompt: format!("{} = ?", roman(n)), answer: n as i32, fact, time_limit: 10.0, hint: Some(Self::HINT), ..Default::default() }
         } else {
             Task {
                 prompt: format!("{n} = ?"),
-                answer: n,
+                answer: n as i32,
                 fact,
                 time_limit: 14.0,
                 style: AnswerStyle::Roman,
                 hint: Some(Self::HINT),
             }
+        }
+    }
+
+    fn record(&mut self, task: &Task, outcome: &Outcome) {
+        reweigh(&mut self.weights[task.fact], outcome);
+    }
+
+    fn weights(&self) -> Vec<f32> {
+        self.weights.clone()
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        restore(&mut self.weights, weights);
+    }
+}
+
+/// Addition mit negativen Zahlen: zwei Summanden von −10 bis 10, mindestens einer negativ, etwa
+/// „−7 + 12 = ?“ oder „5 + (−9) = ?“. Ergebnisse liegen zwischen −20 und 20 und werden mit der
+/// Minus-Taste eingetippt. Aufgaben, bei denen das Vorzeichen wechselt, sind die eigentliche Übung
+/// und kommen etwas öfter.
+pub struct NegativeNumbers {
+    pairs: Vec<(i32, i32)>,
+    weights: Vec<f32>,
+    last: Option<usize>,
+}
+
+impl NegativeNumbers {
+    const HINT: &'static str = "+ positive Zahl → rechts · + negative Zahl → links";
+
+    pub fn new() -> Self {
+        let range = (-10..=10).filter(|n: &i32| *n != 0);
+        let pairs: Vec<(i32, i32)> =
+            range.clone().flat_map(|a| range.clone().map(move |b| (a, b))).filter(|(a, b)| *a < 0 || *b < 0).collect();
+        let weights = pairs
+            .iter()
+            .map(|(a, b)| {
+                let sum = a + b;
+                if sum.signum() != a.signum() { 1.3 } else if *a < 0 && *b < 0 { 0.8 } else { 1.0 }
+            })
+            .collect();
+        Self { pairs, weights, last: None }
+    }
+}
+
+impl TaskGenerator for NegativeNumbers {
+    fn next(&mut self, rng: &mut Rng) -> Task {
+        let fact = pick_weighted(&self.weights, |i| Some(i) == self.last, rng);
+        self.last = Some(fact);
+        let (a, b) = self.pairs[fact];
+        // Ein negativer zweiter Summand steht in Klammern: „5 + (−9)“.
+        let second = if b < 0 { format!("({b})") } else { b.to_string() };
+        Task {
+            prompt: format!("{a} + {second} = ?"),
+            answer: a + b,
+            fact,
+            time_limit: 9.0,
+            style: AnswerStyle::Signed,
+            hint: Some(Self::HINT),
         }
     }
 
@@ -947,14 +1078,8 @@ fn type_answer(
     mut next: ResMut<NextState<GamePhase>>,
 ) {
     active.elapsed += time.delta_secs();
-    if let Some(key) = active.task.read_key(&keys)
-        && active.input.len() < active.task.max_len()
-    {
-        active.input.push(key);
-    }
-    if keys.just_pressed(KeyCode::Backspace) {
-        active.input.pop();
-    }
+    let active = &mut *active;
+    active.task.type_into(&mut active.input, &keys);
 
     let share = active.remaining_share();
     bar.0.width = Val::Percent(share * 100.0);
@@ -974,8 +1099,6 @@ fn type_answer(
         return;
     };
 
-    // Einzelne Felder getrennt ausleihen können.
-    let active = &mut *active;
     let solution = active.task.solution();
     topic.0.record(&active.task, &outcome);
     stats.count(&outcome);
@@ -997,7 +1120,7 @@ fn type_answer(
         (Purpose::Freight(_), Outcome::Wrong) => {
             // Ein Fehler kostet etwas Schild, aber nie das Schiff.
             player.health = (player.health - WRONG_DAMAGE).max(1.0);
-            (BAD, format!("Knapp daneben – richtig ist {}", active.task.answer))
+            (BAD, format!("Knapp daneben – richtig ist {}", active.task.show(active.task.answer)))
         }
         (Purpose::WaveBonus { size }, Outcome::Correct { remaining_share }) => {
             let points = wave_points(*size, remaining_share);
@@ -1010,7 +1133,7 @@ fn type_answer(
         }
         (Purpose::WaveBonus { .. }, Outcome::Wrong) => {
             player.health = (player.health - WRONG_DAMAGE).max(1.0);
-            (BAD, format!("Knapp daneben – richtig ist {}", active.task.answer))
+            (BAD, format!("Knapp daneben – richtig ist {}", active.task.show(active.task.answer)))
         }
         (Purpose::Super { .. }, Outcome::Correct { remaining_share }) => {
             let points = (BASE_POINTS + SPEED_POINTS * remaining_share).round() as u32;
@@ -1033,7 +1156,7 @@ fn type_answer(
         (Purpose::Super { .. }, Outcome::Wrong) => {
             player.health = (player.health - WRONG_DAMAGE).max(1.0);
             fire.write(FireSuper { tier: 1, power: 0.0 });
-            (BAD, format!("Fehlzündung – richtig ist {}. Nur ein schwacher Puls.", active.task.answer))
+            (BAD, format!("Fehlzündung – richtig ist {}. Nur ein schwacher Puls.", active.task.show(active.task.answer)))
         }
         (Purpose::Super { .. }, Outcome::TimedOut) => {
             fire.write(FireSuper { tier: 1, power: 0.0 });
@@ -1187,7 +1310,7 @@ mod new_topic_tests {
             if binary {
                 binary_answers += 1;
                 // Führende Nullen darf man weglassen: „101“ ist dieselbe Eingabe wie „0101“.
-                assert_eq!(bits.parse::<u32>().unwrap(), task.answer);
+                assert_eq!(bits.parse::<i32>().unwrap(), task.answer);
             }
         }
         assert!((700..1300).contains(&binary_answers), "{binary_answers}");
@@ -1228,9 +1351,50 @@ mod roman_tests {
                 // Nur die übliche Schreibweise zählt.
                 assert!(!task.check(&"I".repeat(task.answer as usize)) || task.answer <= 3);
             } else {
-                assert!(task.prompt.starts_with(&roman(task.answer)));
+                assert!(task.prompt.starts_with(&roman(task.answer as u32)));
             }
         }
         assert!((700..1300).contains(&typed), "{typed}");
+    }
+}
+
+#[cfg(test)]
+mod signed_tests {
+    use super::*;
+
+    #[test]
+    fn negative_zahlen() {
+        let mut rng = Rng::default();
+        let mut topic = NegativeNumbers::new();
+        let mut negative = 0;
+        for _ in 0..2000 {
+            let task = topic.next(&mut rng);
+            let (left, right) = task.prompt.split_once(" = ").unwrap();
+            assert_eq!(right, "?");
+            let (a, b) = left.split_once(" + ").unwrap();
+            let a: i32 = a.parse().unwrap();
+            let b: i32 = b.trim_matches(['(', ')']).parse().unwrap();
+            assert!(a < 0 || b < 0, "{}", task.prompt);
+            assert_eq!(a + b, task.answer);
+            assert!(task.check(&task.answer.to_string()));
+            if task.answer < 0 {
+                negative += 1;
+            }
+        }
+        assert!((600..1400).contains(&negative), "{negative}");
+    }
+
+    #[test]
+    fn minus_nur_vorn() {
+        let task = NegativeNumbers::new().next(&mut Rng::default());
+        let mut keys = ButtonInput::<KeyCode>::default();
+        let mut input = String::new();
+        for key in [KeyCode::Numpad3, KeyCode::NumpadSubtract, KeyCode::Backspace, KeyCode::NumpadSubtract] {
+            keys.press(key);
+            task.type_into(&mut input, &keys);
+            keys.release(key);
+            keys.clear();
+        }
+        assert_eq!(input, "-");
     }
 }

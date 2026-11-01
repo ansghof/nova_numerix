@@ -131,14 +131,7 @@ impl Run {
     /// Nimmt Ziffern, Rücktaste und Enter entgegen; gibt das Ergebnis zurück, sobald es feststeht.
     fn feed(&mut self, keys: &ButtonInput<KeyCode>, dt: f32) -> Option<Outcome> {
         self.elapsed += dt;
-        if let Some(key) = self.task.read_key(keys)
-            && self.input.len() < self.task.max_len()
-        {
-            self.input.push(key);
-        }
-        if keys.just_pressed(KeyCode::Backspace) {
-            self.input.pop();
-        }
+        self.task.type_into(&mut self.input, keys);
         let submitted = (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && !self.input.is_empty();
         if submitted {
             return Some(if self.task.check(&self.input) {

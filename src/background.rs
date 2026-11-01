@@ -89,6 +89,27 @@ fn draw(mut gizmos: Gizmos, time: Res<Time>, field: Res<Starfield>, level: Res<C
                 gizmos.ellipse_2d(Isometry2d::from_translation(at), Vec2::new(size, size * 0.45), LinearRgba::rgb(0.32, 0.07, 0.03));
             }
         }
+        Backdrop::IceMoon => {
+            // Ein blasser Eismond ragt von oben ins Bild …
+            let center = Vec2::new(320.0, HALF_HEIGHT + 300.0);
+            let radius = 470.0;
+            gizmos.circle_2d(center, radius, LinearRgba::rgb(0.25, 0.4, 0.7)).resolution(160);
+            for (angle, distance, size) in [(-1.3, 400.0, 30.0), (-1.75, 430.0, 20.0), (-2.1, 380.0, 26.0)] {
+                let at = center + Vec2::from_angle(angle) * distance;
+                gizmos.ellipse_2d(Isometry2d::from_translation(at), Vec2::new(size, size * 0.45), LinearRgba::rgb(0.12, 0.2, 0.38));
+            }
+            // … und quer durchs Bild läuft die Nulllinie mit Strichen wie auf einem Zahlenstrahl.
+            let line = LinearRgba::rgb(0.2, 0.32, 0.6);
+            gizmos.line_2d(Vec2::new(-SPAN, 0.0), Vec2::new(SPAN, 0.0), line);
+            let mut x = -SPAN - field.grid_offset;
+            let mut i = 0;
+            while x < SPAN {
+                let tick = if i % 5 == 0 { 14.0 } else { 6.0 };
+                gizmos.line_2d(Vec2::new(x, -tick), Vec2::new(x, tick), line);
+                x += GRID_SPACING / 2.0;
+                i += 1;
+            }
+        }
         Backdrop::DataRain => {
             // Senkrechte Datenströme, die langsam herabrieseln.
             let t = time.elapsed_secs();

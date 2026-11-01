@@ -247,6 +247,8 @@ fn play_script(
                 'X' => Some(KeyCode::KeyX),
                 'L' => Some(KeyCode::KeyL),
                 'C' => Some(KeyCode::KeyC),
+                '-' => Some(KeyCode::NumpadSubtract),
+                '/' => Some(KeyCode::NumpadDivide),
                 _ => digit(c.to_digit(10)?),
             });
             script.keys.extend(keys.chain([KeyCode::Enter]));

@@ -363,7 +363,7 @@ pub const BOSS: Song = Song {
 };
 
 /// Je Level ein eigenes Stück.
-pub const LEVEL_SONGS: [Song; 5] = [
+pub const LEVEL_SONGS: [Song; 6] = [
     // Neonnebel: a-Moll, entspannt treibend
     Song {
         bpm: 118.0,
@@ -415,6 +415,17 @@ pub const LEVEL_SONGS: [Song; 5] = [
         bass: Wave::Square,
         arp: Wave::Saw,
         pattern: &[0, 2, 0, 1],
+        driving: false,
+        drums: true,
+        pad: false,
+    },
+    // Eismond: fis-Moll, kühl und gläsern
+    Song {
+        bpm: 116.0,
+        chords: &[[54, 57, 61], [50, 54, 57], [57, 61, 64], [52, 56, 59]],
+        bass: Wave::Triangle,
+        arp: Wave::Sine,
+        pattern: &[0, 2, 1, 2, 0, 1],
         driving: false,
         drums: true,
         pad: false,

@@ -5,14 +5,15 @@
 //! hochgehen, wenn man ihnen zu nahe kommt, und Kreuzer feuern Fächer. Im Datenkern sind Bits
 //! nur verwundbar, solange sie eine 1 zeigen, und Datenpakete rasen in Strömen vorbei. Am
 //! Mars-Außenposten marschieren Legionäre in Schildkröten-Formation: Nur wer vorn niemanden mehr
-//! vor sich hat, ist verwundbar.
+//! vor sich hat, ist verwundbar. Auf dem Eismond pendeln Frostlinge über die Nulllinie: Oben, im
+//! Plus, kann man sie treffen, unten, im Minus, sind sie gepanzert.
 //!
 //! Jede Frachtdrohne zeigt in ihrem Inneren und auf einem Schild darunter, was sie geladen hat.
 
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::neon::{GOLD, GREEN, LIME, MAGENTA, ORANGE, PINK, RED, Shape, VIOLET, WHITE, polygon, scaled};
+use crate::neon::{GOLD, GREEN, ICE, LIME, MAGENTA, ORANGE, PINK, RED, Shape, VIOLET, WHITE, polygon, scaled};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Loadout, Player};
 use crate::rng::Rng;
@@ -54,6 +55,11 @@ const PACKET_SPEED: f32 = 300.0;
 const LEGION_SPEED: f32 = 95.0;
 /// Abstand der Legionäre in der Schildkröte.
 const LEGION_GAP: f32 = 44.0;
+const FROST_SPEED: f32 = 120.0;
+/// So weit pendeln Frostlinge über und unter die Nulllinie …
+const FROST_SWING: f32 = 190.0;
+/// … und so schnell.
+const FROST_RATE: f32 = 1.3;
 /// So lange steigt der Schriftzug nach einer ausgelöschten Welle auf.
 const BANNER_TIME: f32 = 1.3;
 
@@ -100,6 +106,8 @@ pub enum EnemyKind {
     Packet,
     /// Marschiert in der Schildkröte; gedeckt, solange ein Kamerad direkt vor ihm steht.
     Legionary,
+    /// Pendelt über die Nulllinie; nur im Plus verwundbar.
+    Frost,
 }
 
 /// Wie eine Welle aufgebaut ist.
@@ -131,6 +139,8 @@ pub enum Formation {
     Stream,
     /// Legionäre in Schildkröten-Formation, drei mal drei
     Testudo,
+    /// Frostlinge in einer Reihe, die als Welle über die Nulllinie schwingt
+    ZeroLine,
 }
 
 impl EnemyKind {
@@ -149,6 +159,7 @@ impl EnemyKind {
             Self::Bit => 2.0,
             Self::Packet => 1.0,
             Self::Legionary => 2.0,
+            Self::Frost => 2.0,
         }
     }
 
@@ -167,6 +178,7 @@ impl EnemyKind {
             Self::Bit => 120,
             Self::Packet => 60,
             Self::Legionary => 110,
+            Self::Frost => 120,
         }
     }
 
@@ -174,7 +186,7 @@ impl EnemyKind {
     fn credits(self) -> u32 {
         match self {
             Self::Shard | Self::Packet => 1,
-            Self::Wobbler | Self::Spinner | Self::Seeker | Self::Mine | Self::Bit | Self::Legionary => 2,
+            Self::Wobbler | Self::Spinner | Self::Seeker | Self::Mine | Self::Bit | Self::Legionary | Self::Frost => 2,
             Self::Dart | Self::Splitter => 3,
             Self::Turret => 4,
             Self::Freighter | Self::Cruiser => 6,
@@ -196,6 +208,7 @@ impl EnemyKind {
             Self::Bit => 17.0,
             Self::Packet => 10.0,
             Self::Legionary => 17.0,
+            Self::Frost => 17.0,
         }
     }
 
@@ -262,6 +275,7 @@ impl EnemyKind {
                 .open(&[Vec2::new(-20.0, 12.0), Vec2::new(-30.0, 20.0)])
                 .open(&[Vec2::new(-20.0, -12.0), Vec2::new(-30.0, -20.0)]),
             Self::Bit => bit_shape(false),
+            Self::Frost => frost_shape(false),
             // Ein gewölbter Schild nach vorn, dahinter der Helm mit Busch.
             Self::Legionary => Shape::new(RED)
                 .closed(&[
@@ -294,6 +308,22 @@ fn bit_shape(zero: bool) -> Shape {
             .open(&[Vec2::new(-5.0, 8.0), Vec2::new(2.0, 13.0), Vec2::new(2.0, -13.0)])
             .open(&[Vec2::new(-5.0, -13.0), Vec2::new(8.0, -13.0)])
     }
+}
+
+/// Ein Frostling: ein Sechseck mit Eiszacken und einem Vorzeichen. Im Plus hell und verwundbar,
+/// im Minus dunkel und gepanzert.
+fn frost_shape(below: bool) -> Shape {
+    let color = if below { scaled(ICE, 0.25) } else { ICE };
+    let mut shape = Shape::new(color).closed(&polygon(6, 13.0, 0.0));
+    for i in 0..6 {
+        let dir = Vec2::from_angle(i as f32 * std::f32::consts::FRAC_PI_3);
+        shape = shape.open(&[dir * 13.0, dir * 20.0]);
+    }
+    shape = shape.open(&[Vec2::new(-6.0, 0.0), Vec2::new(6.0, 0.0)]);
+    if !below {
+        shape = shape.open(&[Vec2::new(0.0, -6.0), Vec2::new(0.0, 6.0)]);
+    }
+    shape
 }
 
 #[derive(Component)]
@@ -626,6 +656,16 @@ fn spawn_waves(
                 }
             }
         }
+        // Sechs Frostlinge, deren Pendel gegeneinander versetzt ist: Die Reihe schwingt als Welle.
+        Formation::ZeroLine => {
+            let start = rng.range(0.0, std::f32::consts::TAU);
+            for i in 0..6 {
+                let mut frost = Enemy::new(EnemyKind::Frost, &mut rng);
+                frost.wave_phase = start + i as f32 * 0.7;
+                let y = frost.wave_phase.sin() * FROST_SWING;
+                members.push((frost, Vec2::new(spawn_x + i as f32 * 60.0, y)));
+            }
+        }
         // Sechs Sucher, verstreut über die ganze Höhe
         Formation::Seekers => {
             for i in 0..6 {
@@ -693,12 +733,23 @@ fn fly(
             EnemyKind::Packet => Vec2::new(-PACKET_SPEED, 0.0),
             // Im Gleichschritt: alle mit derselben Welle, damit die Formation zusammenbleibt.
             EnemyKind::Legionary => Vec2::new(-LEGION_SPEED, (enemy.age * 1.2).sin() * 25.0),
+            EnemyKind::Frost => Vec2::new(-FROST_SPEED, 0.0),
         };
         transform.translation += (vel * dt).extend(0.0);
         match enemy.kind {
             // Alle Pakete eines Stroms folgen derselben Wellenbahn, die Höhe hängt nur von x ab.
             EnemyKind::Packet => {
                 transform.translation.y = enemy.center.y + (transform.translation.x * 0.011 + enemy.center.x).sin() * 150.0;
+            }
+            // Die Höhe folgt dem Pendel; unter der Nulllinie wird der Frostling zum Minus.
+            EnemyKind::Frost => {
+                transform.translation.y = (enemy.age * FROST_RATE + enemy.wave_phase).sin() * FROST_SWING;
+                let below = transform.translation.y < 0.0;
+                if below != enemy.shielded {
+                    enemy.shielded = below;
+                    *shape = frost_shape(below);
+                    enemy.color = shape.color;
+                }
             }
             EnemyKind::Bit => {
                 enemy.fire_timer -= dt;

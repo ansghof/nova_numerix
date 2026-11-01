@@ -247,11 +247,20 @@ stehen die Stellenwerte 8 · 4 · 2 · 1.
 | 3 | Gasriese | Großes 1×1 (11–20 × 2–9) | Die Sturmfestung: ab halber Kraft zusätzlich drehende Schussringe | Minen (gehen hoch, wenn man zu nahe kommt; dann kein Abschuss und keine Wellenprämie), Kreuzer mit Fünferfächer |
 | 4 | Datenkern | Binärzahlen (4 Bit, beide Richtungen) | Der Prozessor: Platten zeigen Binärzahlen, falsche unterscheiden sich in einem Bit | Bits (nur als 1 verwundbar, kippen alle 1,4 s um), Datenströme |
 | 5 | Mars-Außenposten | Römische Zahlen bis 100 (beide Richtungen) | Der Zenturio: Legionärsschild mit Helmbusch, Platten zeigen römische Zahlen | Legionäre in Schildkröten-Formation (3×3): nur wer vorn niemanden vor sich hat, ist verwundbar |
+| 6 | Eismond | Addition mit negativen Zahlen (−10 bis 10) | Der Frostkristall: Eiskristall mit sechs verzweigten Armen; unter den falschen Platten steht immer das Ergebnis mit falschem Vorzeichen | Frostlinge pendeln als Welle über die Nulllinie: oben (im Plus, mit „+“) verwundbar, unten (im Minus, dunkel mit „−“) gepanzert |
 
 **Römische Eingabe:** „XLVII = ?“ wird mit Ziffern beantwortet, „47 = ?“ mit den Buchstabentasten
 I, V, X, L, C. Es zählt nur die übliche Schreibweise (XL, nicht XXXX). Unter jeder Aufgabe steht
 „I = 1 · V = 5 · X = 10 · L = 50 · C = 100“. Zahlen mit IV, IX, XL oder XC kommen anfangs öfter,
 einfache wie III oder XX seltener. Hintergrund: der rote Mars mit Kratern; Musik: ein Marsch in g-Moll.
+
+**Negative Zahlen:** zwei Summanden von −10 bis 10, mindestens einer negativ; ein negativer
+zweiter Summand steht in Klammern („5 + (−9) = ?“). Bewusst nur Addition, damit es nicht zu schwer
+wird. Das Minus tippt man zuerst, über den Nummernblock oder die Minus-Taste (deutsche und
+englische Tastatur). Aufgaben, bei denen das Vorzeichen wechselt, kommen anfangs etwas öfter,
+zwei negative Summanden etwas seltener. Merkhilfe: „+ positive Zahl → rechts · + negative Zahl →
+links“. Hintergrund: ein blasser Eismond oben und quer durchs Bild die Nulllinie mit
+Zahlenstrahl-Strichen; Musik: kühl und gläsern in fis-Moll.
 
 Hintergründe: am Gasriesen ein gestreifter Planet, im Datenkern herabrieselnde Datenströme.
 Addition und Subtraktion bis 20 sind für 10- bis 15-Jährige zu leicht und entfallen vorerst.
