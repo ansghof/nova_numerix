@@ -1,5 +1,5 @@
 //! Geräusche und Musik. Alles wird beim Start mit [`crate::synth`] erzeugt: die Geräusche sofort,
-//! die Musikstücke in einem eigenen Faden, damit der Start nicht wartet.
+//! die Musikstücke in einem eigenen Thread, damit der Start nicht wartet.
 //!
 //! Andere Module lösen ein Geräusch mit [`play`] aus. Die Musik folgt dem Spielzustand: ruhig in
 //! Menü und Werft, je Level ein eigenes Stück, im Bosskampf ein schnelleres; Wechsel werden
@@ -81,7 +81,7 @@ struct SoundBank {
     music: HashMap<Track, Handle<AudioSource>>,
     /// Die Musik entsteht im Hintergrund und kommt Stück für Stück hier an.
     incoming: Mutex<Receiver<(Track, Vec<u8>)>>,
-    /// Im Browser gibt es keine Fäden: Dort wird je Bild ein Stück erzeugt.
+    /// Im Browser gibt es keine Threads: Dort wird je Frame ein Stück erzeugt.
     pending: Vec<(Track, &'static Song)>,
 }
 

@@ -315,6 +315,6 @@ Rauschen), es gibt keine Tondateien. Die Musikstücke werden im Hintergrund erze
 - Spielstände im localStorage der Seite (`nova_numerix_slot1` … `5`), sonst wie auf dem PC.
 - Schrift: Fira Sans aus `assets/fonts` (SIL Open Font License), weil der Browser keine
   Systemschriften liefert. Sterne sind deshalb Bilder statt Schriftzeichen.
-- Musik wird im Browser ohne Faden erzeugt, ein Stück je Bild.
+- Im Browser gibt es keine Threads: Die Musik wird dort im Hauptprogramm erzeugt, ein Stück je Frame.
 - Das Spiel füllt das Browserfenster; „Beenden“ entfällt. Ton erlauben Browser erst nach einem
   Klick oder Tastendruck, der Splash fordert ohnehin dazu auf.
