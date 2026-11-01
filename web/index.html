@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nova Numerix</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #010105; overflow: hidden; }
+    canvas#nova { display: block; width: 100%; height: 100%; outline: none; }
+    #hinweis {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #cfe6ff; font: 20px "Fira Sans", "Segoe UI", sans-serif; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="nova" tabindex="0"></canvas>
+  <div id="hinweis">Nova Numerix lädt …</div>
+  <script type="module">
+    import init from './nova_numerix.js';
+    const canvas = document.getElementById('nova');
+    // Tastatur geht an das Spiel, sobald man hineinklickt; Browser erlauben Ton erst nach einem Klick.
+    canvas.addEventListener('pointerdown', () => canvas.focus());
+    init()
+      .catch((e) => {
+        // winit beendet seine Startfunktion absichtlich mit dieser Ausnahme.
+        if (!String(e).includes('Using exceptions for control flow')) throw e;
+      });
+    const hint = document.getElementById('hinweis');
+    const ready = setInterval(() => {
+      if (canvas.width > 0 && canvas.height > 0) {
+        hint.textContent = 'Zum Spielen ins Bild klicken';
+        setTimeout(() => hint.remove(), 2500);
+        clearInterval(ready);
+      }
+    }, 200);
+  </script>
+</body>
+</html>

@@ -6,14 +6,21 @@ rust-version = "1.97"
 publish = false
 
 [dependencies]
-# system_font_discovery: Die eingebaute Schrift hat keine Umlaute, also Systemschriften nutzen.
-# Für den Web-Build muss später eine Schrift mitgeliefert werden.
 # wav: Geräusche und Musik entstehen im Code und werden als WAV abgespielt.
-bevy = { version = "0.20", features = ["system_font_discovery", "wav"] }
+bevy = { version = "0.20", features = ["wav"] }
 # Lokale Uhrzeit für den Zeitstempel der Spielstände.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
+
+# Auf dem PC: Die eingebaute Schrift hat keine Umlaute, also Systemschriften nutzen.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { version = "0.20", features = ["system_font_discovery"] }
+
+# Im Browser: Uhrzeit über JavaScript, Spielstände im localStorage.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
+web-sys = { version = "0.3", features = ["Window", "Storage"] }
 
 # Bevy-Systeme haben naturgemäß viele Parameter und lange Query-Typen.
 [lints.clippy]
@@ -35,3 +42,10 @@ opt-level = 3
 [profile.release]
 codegen-units = 1
 lto = "thin"
+
+# Browser-Version: klein statt maximal schnell, ohne Symbolnamen. Das Spiel braucht wenig Rechenkraft.
+[profile.web]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+strip = true

@@ -1,0 +1,64 @@
+# Baut bei jedem Push auf main die Browser-Version und veröffentlicht sie auf GitHub Pages:
+# https://ansghof.github.io/nova_numerix/
+# Einmalig im Repo einschalten: Settings → Pages → Source: „GitHub Actions“.
+name: Browser-Version
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      # wasm-bindgen muss genau die Version aus Cargo.lock haben.
+      - name: wasm-bindgen-Version bestimmen
+        id: bindgen
+        run: |
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ steps.bindgen.outputs.version }}
+
+      - name: Bauen
+        run: |
+          cargo build --profile web --target wasm32-unknown-unknown
+          mkdir -p web/dist
+          wasm-bindgen --target web --no-typescript --remove-name-section --remove-producers-section \
+            --out-dir web/dist target/wasm32-unknown-unknown/web/nova_numerix.wasm
+          cp web/index.html web/dist/
+          cp -r assets web/dist/assets
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

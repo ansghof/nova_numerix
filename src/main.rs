@@ -4,6 +4,7 @@ mod boss;
 mod devtools;
 mod difficulty;
 mod enemy;
+mod fonts;
 mod hud;
 mod level;
 mod menu;
@@ -16,6 +17,7 @@ mod save;
 mod ship;
 mod shipyard;
 mod shots;
+mod stars;
 mod sound;
 mod superweapon;
 mod synth;
@@ -78,6 +80,32 @@ pub enum GamePhase {
     Return,
 }
 
+/// Das Spielfenster. Auf dem PC im Vollbild (F11 wechselt), im Browser füllt es die Zeichenfläche
+/// der Seite und schluckt die Tasten, damit Leertaste und Pfeile die Seite nicht verschieben.
+fn window(test_run: bool, resolution: (u32, u32)) -> Window {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (test_run, resolution);
+        Window {
+            title: "Nova Numerix".into(),
+            canvas: Some("#nova".into()),
+            fit_canvas_to_parent: true,
+            prevent_default_event_handling: true,
+            ..default()
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    Window {
+        title: "Nova Numerix".into(),
+        resolution: resolution.into(),
+        focused: !test_run,
+        mode: if test_run { WindowMode::Windowed } else { WindowMode::BorderlessFullscreen(MonitorSelection::Primary) },
+        // Testläufe öffnen ihr Fenster außerhalb des Bildschirms, damit es niemanden stört.
+        position: if test_run { WindowPosition::At(IVec2::new(-20000, -20000)) } else { WindowPosition::Automatic },
+        ..default()
+    }
+}
+
 fn main() {
     // Automatische Testläufe sollen niemandem den Fokus wegnehmen.
     let test_run = cfg!(debug_assertions) && std::env::var("NOVA_TEST").is_ok();
@@ -93,23 +121,12 @@ fn main() {
         .unwrap_or((1280, 720));
 
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Nova Numerix".into(),
-                resolution: resolution.into(),
-                focused: !test_run,
-                // Gespielt wird im Vollbild; F11 wechselt ins Fenster und zurück.
-                mode: if test_run { WindowMode::Windowed } else { WindowMode::BorderlessFullscreen(MonitorSelection::Primary) },
-                // Testläufe öffnen ihr Fenster außerhalb des Bildschirms, damit es niemanden stört.
-                position: if test_run {
-                    WindowPosition::At(IVec2::new(-20000, -20000))
-                } else {
-                    WindowPosition::Automatic
-                },
-                ..default()
-            }),
-            ..default()
-        }))
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin { primary_window: Some(window(test_run, resolution)), ..default() })
+            // Zu den Bildern gibt es keine .meta-Dateien; im Browser würde jede Nachfrage einen 404 erzeugen.
+            .set(AssetPlugin { meta_check: bevy::asset::AssetMetaCheck::Never, ..default() }),
+    )
         .insert_resource(ClearColor(Color::srgb(0.005, 0.005, 0.02)))
         // Testläufe starten direkt im Flug, außer NOVA_START verlangt den Splash.
         .insert_state(if test_run && std::env::var("NOVA_START").is_err() { AppState::Playing } else { AppState::Splash })
@@ -135,7 +152,7 @@ fn main() {
             hud::HudPlugin,
             menu::MenuPlugin,
         ))
-        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin, difficulty::DifficultyPlugin, sound::SoundPlugin));
+        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin, difficulty::DifficultyPlugin, sound::SoundPlugin, fonts::FontsPlugin, stars::StarsPlugin));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);
     app.run();

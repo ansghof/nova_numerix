@@ -137,7 +137,7 @@ impl Menu {
 
 fn font(size: f32) -> TextFont {
     TextFont {
-        font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
+        font: crate::fonts::family(),
         ..TextFont::from_font_size(size)
     }
 }
@@ -206,7 +206,11 @@ fn main_actions(started: bool) -> Vec<MainAction> {
     if started {
         actions.push(MainAction::Continue);
     }
-    actions.extend([MainAction::NewGame, MainAction::Load, MainAction::Quit]);
+    actions.extend([MainAction::NewGame, MainAction::Load]);
+    // Im Browser schließt man einfach den Tab.
+    if !cfg!(target_arch = "wasm32") {
+        actions.push(MainAction::Quit);
+    }
     actions
 }
 

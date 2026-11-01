@@ -401,7 +401,7 @@ fn spawn_cargo_tag(commands: &mut Commands, freighter: Entity, reward: Reward, p
         .with_child((
             Text2d::new(reward.label()),
             TextFont {
-                font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
+                font: crate::fonts::family(),
                 ..TextFont::from_font_size(15.0)
             },
             TextColor(Color::LinearRgba(scaled(reward.color(), 0.8))),
@@ -878,7 +878,7 @@ fn wave_cleared_effect(
         RisingBanner(0.0),
         Text2d::new("Welle ausgelöscht!"),
         TextFont {
-            font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
+            font: crate::fonts::family(),
             ..TextFont::from_font_size(30.0)
         },
         TextColor(Color::LinearRgba(GOLD)),

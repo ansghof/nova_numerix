@@ -602,7 +602,7 @@ struct HintText;
 
 fn font(size: f32) -> TextFont {
     TextFont {
-        font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
+        font: crate::fonts::family(),
         ..TextFont::from_font_size(size)
     }
 }

@@ -19,7 +19,7 @@ use crate::level::{CheckpointReached, CurrentLevel, LevelStats, Rewind};
 use crate::player::Player;
 use crate::superweapon::FireSuper;
 use crate::task::FAST_SHARE;
-use crate::synth::{BOSS, LEVEL_SONGS, MENU, Sfx};
+use crate::synth::{BOSS, LEVEL_SONGS, MENU, Sfx, Song};
 use crate::{AppState, GamePhase};
 
 /// Lautstärke der Musik, im Hintergrund und während einer Aufgabe.
@@ -81,6 +81,16 @@ struct SoundBank {
     music: HashMap<Track, Handle<AudioSource>>,
     /// Die Musik entsteht im Hintergrund und kommt Stück für Stück hier an.
     incoming: Mutex<Receiver<(Track, Vec<u8>)>>,
+    /// Im Browser gibt es keine Fäden: Dort wird je Bild ein Stück erzeugt.
+    pending: Vec<(Track, &'static Song)>,
+}
+
+/// Erst das Menü, das zuerst gebraucht wird, dann die Level und der Boss.
+fn songs() -> Vec<(Track, &'static Song)> {
+    let mut songs = vec![(Track::Menu, &MENU)];
+    songs.extend(LEVEL_SONGS.iter().enumerate().map(|(i, song)| (Track::Level(i), song)));
+    songs.push((Track::Boss, &BOSS));
+    songs
 }
 
 #[derive(Component)]
@@ -99,18 +109,19 @@ fn source(bytes: Vec<u8>) -> AudioSource {
 fn build_sounds(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) {
     let sfx = Sfx::ALL.iter().map(|s| (*s, sources.add(source(s.render())))).collect();
     let (sender, receiver) = channel();
-    std::thread::spawn(move || {
-        // Erst das Menü, das zuerst gebraucht wird, dann die Level.
-        let mut songs = vec![(Track::Menu, &MENU)];
-        songs.extend(LEVEL_SONGS.iter().enumerate().map(|(i, song)| (Track::Level(i), song)));
-        songs.push((Track::Boss, &BOSS));
-        for (track, song) in songs {
-            if sender.send((track, song.render())).is_err() {
-                return;
+    let pending = if cfg!(target_arch = "wasm32") {
+        songs()
+    } else {
+        std::thread::spawn(move || {
+            for (track, song) in songs() {
+                if sender.send((track, song.render())).is_err() {
+                    return;
+                }
             }
-        }
-    });
-    commands.insert_resource(SoundBank { sfx, music: HashMap::new(), incoming: Mutex::new(receiver) });
+        });
+        Vec::new()
+    };
+    commands.insert_resource(SoundBank { sfx, music: HashMap::new(), incoming: Mutex::new(receiver), pending });
 }
 
 fn receive_music(mut bank: ResMut<SoundBank>, mut sources: ResMut<Assets<AudioSource>>) {
@@ -120,6 +131,11 @@ fn receive_music(mut bank: ResMut<SoundBank>, mut sources: ResMut<Assets<AudioSo
     };
     for (track, bytes) in ready {
         let handle = sources.add(source(bytes));
+        bank.music.insert(track, handle);
+    }
+    if !bank.pending.is_empty() {
+        let (track, song) = bank.pending.remove(0);
+        let handle = sources.add(source(song.render()));
         bank.music.insert(track, handle);
     }
 }
@@ -323,7 +339,7 @@ fn spawn_settings_label(mut commands: Commands) {
         SettingsLabel,
         Text::new(""),
         TextFont {
-            font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
+            font: crate::fonts::family(),
             ..TextFont::from_font_size(15.0)
         },
         TextColor(Color::srgb(0.8, 0.9, 1.0)),

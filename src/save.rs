@@ -6,6 +6,7 @@
 //! im Browser später der localStorage.
 
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
 use bevy::prelude::*;
@@ -32,7 +33,7 @@ pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Saves { storage: Box::new(FileStorage::new()), active: None })
+        app.insert_resource(Saves { storage: storage(), active: None })
             .init_resource::<ShipName>()
             .init_resource::<Mastery>()
             .add_systems(OnEnter(AppState::Shipyard), save_now)
@@ -52,11 +53,50 @@ pub trait SaveStorage: Send + Sync + 'static {
     fn write(&self, slot: usize, data: &str) -> Result<(), String>;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn storage() -> Box<dyn SaveStorage> {
+    Box::new(FileStorage::new())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn storage() -> Box<dyn SaveStorage> {
+    Box::new(WebStorage)
+}
+
+/// Im Browser: ein Eintrag je Slot im localStorage der Seite.
+#[cfg(target_arch = "wasm32")]
+struct WebStorage;
+
+#[cfg(target_arch = "wasm32")]
+impl WebStorage {
+    fn local() -> Option<web_sys::Storage> {
+        web_sys::window()?.local_storage().ok()?
+    }
+
+    fn key(slot: usize) -> String {
+        format!("nova_numerix_slot{}", slot + 1)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl SaveStorage for WebStorage {
+    fn read(&self, slot: usize) -> Option<String> {
+        Self::local()?.get_item(&Self::key(slot)).ok()?
+    }
+
+    fn write(&self, slot: usize, data: &str) -> Result<(), String> {
+        let local = Self::local().ok_or("kein localStorage")?;
+        local.set_item(&Self::key(slot), data).map_err(|e| format!("{e:?}"))
+    }
+}
+
 /// Eine RON-Datei pro Slot im Benutzerordner; Testläufe schreiben nach `target`.
+#[cfg(not(target_arch = "wasm32"))]
 struct FileStorage {
     dir: PathBuf,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl FileStorage {
     fn new() -> Self {
         let dir = if cfg!(debug_assertions) && std::env::var("NOVA_TEST").is_ok() {
@@ -75,6 +115,7 @@ impl FileStorage {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl SaveStorage for FileStorage {
     fn read(&self, slot: usize) -> Option<String> {
         std::fs::read_to_string(self.path(slot)).ok()
@@ -107,7 +148,7 @@ impl Saves {
                 Ok(data) if data.version == VERSION => {
                     let stars: u32 = data.stars.iter().map(|mask| mask.count_ones()).sum();
                     let detail = format!(
-                        "{} von {} Leveln frei · ★ {stars}/{} · {} · {} Credits",
+                        "{} von {} Leveln frei · Sterne {stars}/{} · {} · {} Credits",
                         data.unlocked,
                         LEVELS.len(),
                         LEVELS.len() * 3,

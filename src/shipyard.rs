@@ -12,7 +12,8 @@ use bevy::prelude::*;
 
 use crate::AppState;
 use crate::difficulty::Difficulty;
-use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted, star_string};
+use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted};
+use crate::stars::{StarArt, star_row};
 use crate::player::{Loadout, MAX_DRONES, MAX_LEVEL, MAX_SIDE, Player};
 use crate::ship::{Hull, MAX_ARMOR, Ship};
 use crate::quibbo::QuibboArt;
@@ -404,7 +405,7 @@ struct QuibboPortrait;
 
 fn font(size: f32) -> TextFont {
     TextFont {
-        font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
+        font: crate::fonts::family(),
         ..TextFont::from_font_size(size)
     }
 }
@@ -849,6 +850,7 @@ fn render(
     vessel: Res<Ship>,
     difficulty: Res<Difficulty>,
     campaign: Res<Campaign>,
+    art: Res<StarArt>,
     content: Single<Entity, With<Content>>,
     mut portrait: Single<(&mut Node, &mut ImageNode), With<QuibboPortrait>>,
 ) {
@@ -879,18 +881,16 @@ fn render(
             let options = [
                 format!("Rechentraining: Aufgaben lösen, Credits verdienen (noch {left} voll)"),
                 "Quibbos Laden: Waffen, Reparatur und mehr kaufen".to_string(),
-                format!(
-                    "Abflug  ‹  Level {}: {} · {}  {}  ›",
-                    level + 1,
-                    LEVELS[*level].world,
-                    LEVELS[*level].topic,
-                    star_string(campaign.stars_of(*level))
-                ),
+                format!("Abflug  ‹  Level {}: {} · {}  ›", level + 1, LEVELS[*level].world, LEVELS[*level].topic),
                 format!("Schwierigkeit  ‹  {}  ›  {}", difficulty.name(), difficulty.describe()),
             ];
             for (i, label) in options.into_iter().enumerate() {
                 let r = clickable_row(c, content, i, i == *selected);
                 text(c, r, label, TEXT, 20.0);
+                // Die Sterne des gewählten Levels stehen rechts in der Abflug-Zeile.
+                if i == 2 {
+                    star_row(c, r, &art, campaign.stars_of(*level), 18.0);
+                }
             }
             text(c, content, format!("Sterne: {} von {}", campaign.total_stars(), LEVELS.len() * 3), OKAY, 16.0);
             text(c, content, "W/S oder Maus wählen · A/D Level oder Schwierigkeit wechseln · Enter oder Klick bestätigen", DIM, 14.0);

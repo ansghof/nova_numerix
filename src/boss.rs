@@ -11,6 +11,7 @@ use bevy::prelude::*;
 
 use crate::hud::Score;
 use crate::level::{Rewind, BossDef, BossStyle, Campaign, CurrentLevel, LEVELS, LevelDef, LevelProgress, LevelStarted, LevelStats, star_string};
+use crate::stars::{StarArt, star, star_row};
 use crate::shipyard::{Credits, new_goods};
 use crate::neon::{GOLD, GREEN, MAGENTA, ORANGE, RED, Shape, WHITE, polygon, scaled};
 use crate::particles::Particles;
@@ -151,7 +152,7 @@ struct VictoryScreen;
 
 fn font(size: f32) -> TextFont {
     TextFont {
-        font: FontSource::families("'Segoe UI', 'Noto Sans', sans-serif"),
+        font: crate::fonts::family(),
         ..TextFont::from_font_size(size)
     }
 }
@@ -740,6 +741,7 @@ fn spawn_victory(
     unlocked: Option<&LevelDef>,
     goods: Option<&str>,
     result: &Result,
+    art: &StarArt,
 ) {
     let root = commands
         .spawn((
@@ -801,11 +803,20 @@ fn spawn_victory(
         },
     ];
     for (earned, line) in result.stars.iter().zip(star_lines) {
-        let (mark, color) = if *earned { ('★', OKAY) } else { ('☆', Color::srgb(0.55, 0.62, 0.75)) };
-        commands.spawn((Text::new(format!("{mark} {line}")), TextColor(color), font(17.0), ChildOf(panel)));
+        let color = if *earned { OKAY } else { Color::srgb(0.55, 0.62, 0.75) };
+        let row = commands
+            .spawn((Node { align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() }, ChildOf(panel)))
+            .id();
+        star(commands, row, art, *earned, 20.0);
+        commands.spawn((Text::new(line), TextColor(color), font(17.0), ChildOf(row)));
     }
-    let best = format!("Bestwert für dieses Level: {} · Schwierigkeit: {}", star_string(result.best), result.difficulty.name());
-    commands.spawn((Text::new(best), TextColor(TEXT), font(15.0), ChildOf(panel)));
+    let best = commands
+        .spawn((Node { align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() }, ChildOf(panel)))
+        .id();
+    commands.spawn((Text::new("Bestwert für dieses Level:"), TextColor(TEXT), font(15.0), ChildOf(best)));
+    star_row(commands, best, art, result.best, 16.0);
+    let difficulty = format!("· Schwierigkeit: {}", result.difficulty.name());
+    commands.spawn((Text::new(difficulty), TextColor(TEXT), font(15.0), ChildOf(best)));
     if let Some(level) = unlocked {
         let message = format!("Neues Level freigeschaltet: {} · {}", level.world, level.topic);
         commands.spawn((Text::new(message), TextColor(GOOD), font(18.0), ChildOf(panel)));
@@ -832,6 +843,7 @@ fn victory(
     mut campaign: ResMut<Campaign>,
     current: Res<CurrentLevel>,
     difficulty: Res<Difficulty>,
+    art: Res<StarArt>,
     mut next: ResMut<NextState<AppState>>,
     mut waited: Local<f32>,
     mut shown: Local<bool>,
@@ -863,7 +875,7 @@ fn victory(
         }
         info!("Sterne: {}", star_string(mask));
         let result = Result { stars: earned_stars, percent, best: campaign.stars_of(current.0), difficulty: *difficulty };
-        spawn_victory(&mut commands, current.def().boss.name, score.0, earned, &stats, &loadout, unlocked, goods, &result);
+        spawn_victory(&mut commands, current.def().boss.name, score.0, earned, &stats, &loadout, unlocked, goods, &result, &art);
     }
     // Nach dem großen Knall die Welt anhalten, bis es weitergeht.
     *waited += real.delta_secs();

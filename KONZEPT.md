@@ -309,7 +309,12 @@ Rauschen), es gibt keine Tondateien. Die Musikstücke werden im Hintergrund erze
 - Speichern hinter einem Trait (`SaveStorage`): Datei auf dem PC, später `localStorage` im Web.
 - Nur Deutsch.
 
-### WASM vorbereiten
-- Kein direkter Dateizugriff außerhalb des Speicher-Traits.
-- Keine GPU-Partikel-Crates, die WebGPU voraussetzen.
-- Startbildschirm mit Tastendruck/Klick, damit Audio im Browser starten darf.
+### Browser-Version (umgesetzt)
+- Bauen mit `web/build.ps1` (Release, `wasm32-unknown-unknown`, `wasm-bindgen --target web`), Ergebnis
+  in `web/dist`. Ausprobieren: `python -m http.server 8123 --directory web/dist`.
+- Spielstände im localStorage der Seite (`nova_numerix_slot1` … `5`), sonst wie auf dem PC.
+- Schrift: Fira Sans aus `assets/fonts` (SIL Open Font License), weil der Browser keine
+  Systemschriften liefert. Sterne sind deshalb Bilder statt Schriftzeichen.
+- Musik wird im Browser ohne Faden erzeugt, ein Stück je Bild.
+- Das Spiel füllt das Browserfenster; „Beenden“ entfällt. Ton erlauben Browser erst nach einem
+  Klick oder Tastendruck, der Splash fordert ohnehin dazu auf.
