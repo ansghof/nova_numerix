@@ -110,6 +110,24 @@ fn draw(mut gizmos: Gizmos, time: Res<Time>, field: Res<Starfield>, level: Res<C
                 i += 1;
             }
         }
+        Backdrop::RingWorld => {
+            // Ein kleiner Planet, um den ein riesiger, schräg stehender Ring aus Segmenten läuft.
+            let center = Vec2::new(150.0, 120.0);
+            let dim = LinearRgba::rgb(0.08, 0.32, 0.22);
+            gizmos.circle_2d(center, 90.0, LinearRgba::rgb(0.1, 0.4, 0.28)).resolution(64);
+            let tilt = Isometry2d::new(center, Rot2::radians(-0.18));
+            for half in [Vec2::new(760.0, 150.0), Vec2::new(700.0, 128.0)] {
+                gizmos.ellipse_2d(tilt, half, dim).resolution(128);
+            }
+            // Segmentfugen, die langsam umlaufen
+            let turn = time.elapsed_secs() * 0.05;
+            for i in 0..24 {
+                let angle = turn + i as f32 / 24.0 * std::f32::consts::TAU;
+                let (outer, inner) = (Vec2::new(760.0, 150.0), Vec2::new(700.0, 128.0));
+                let dir = Vec2::from_angle(angle);
+                gizmos.line_2d(tilt.transform_point(dir * inner), tilt.transform_point(dir * outer), dim);
+            }
+        }
         Backdrop::DataRain => {
             // Senkrechte Datenströme, die langsam herabrieseln.
             let t = time.elapsed_secs();

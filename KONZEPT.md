@@ -248,6 +248,7 @@ stehen die Stellenwerte 8 · 4 · 2 · 1.
 | 4 | Datenkern | Binärzahlen (4 Bit, beide Richtungen) | Der Prozessor: Platten zeigen Binärzahlen, falsche unterscheiden sich in einem Bit | Bits (nur als 1 verwundbar, kippen alle 1,4 s um), Datenströme |
 | 5 | Mars-Außenposten | Römische Zahlen bis 100 (beide Richtungen) | Der Zenturio: Legionärsschild mit Helmbusch, Platten zeigen römische Zahlen | Legionäre in Schildkröten-Formation (3×3): nur wer vorn niemanden vor sich hat, ist verwundbar |
 | 6 | Eismond | Addition mit negativen Zahlen (−10 bis 10) | Der Frostkristall: Eiskristall mit sechs verzweigten Armen; unter den falschen Platten steht immer das Ergebnis mit falschem Vorzeichen | Frostlinge pendeln als Welle über die Nulllinie: oben (im Plus, mit „+“) verwundbar, unten (im Minus, dunkel mit „−“) gepanzert |
+| 7 | Ringwelt | Brüche kürzen (Nenner bis 6, erweitert mit 2 bis 5) | Die Ringnabe: Rad aus acht Tortenstücken mit breitem Außenring; falsche Platten sind gekürzte Brüche knapp daneben | Räder: eine Nabe mit sechs kreisenden Ringstücken; die Nabe ist gepanzert, bis alle Stücke ab sind |
 
 **Römische Eingabe:** „XLVII = ?“ wird mit Ziffern beantwortet, „47 = ?“ mit den Buchstabentasten
 I, V, X, L, C. Es zählt nur die übliche Schreibweise (XL, nicht XXXX). Unter jeder Aufgabe steht
@@ -261,6 +262,13 @@ englische Tastatur). Aufgaben, bei denen das Vorzeichen wechselt, kommen anfangs
 zwei negative Summanden etwas seltener. Merkhilfe: „+ positive Zahl → rechts · + negative Zahl →
 links“. Hintergrund: ein blasser Eismond oben und quer durchs Bild die Nulllinie mit
 Zahlenstrahl-Strichen; Musik: kühl und gläsern in fis-Moll.
+
+**Brüche kürzen:** „10/15 = ?“ – gefragt ist der ganz gekürzte Bruch, hier 2/3. 4/6 hätte zwar
+denselben Wert, zählt aber nicht, weil er noch nicht fertig gekürzt ist. Getippt wird mit
+Bruchstrich: „/“ auf dem Nummernblock, Umschalt+7 oder einfach die Leertaste; der Bruchstrich
+geht erst nach dem Zähler und nur einmal. Mit 2 erweiterte Brüche sind am leichtesten und kommen
+anfangs seltener. Merkhilfe: „Zähler und Nenner durch dieselbe Zahl teilen“. Hintergrund: ein
+kleiner Planet mit einem riesigen, schräg stehenden Segmentring; Musik: hell in B-Dur.
 
 Hintergründe: am Gasriesen ein gestreifter Planet, im Datenkern herabrieselnde Datenströme.
 Addition und Subtraktion bis 20 sind für 10- bis 15-Jährige zu leicht und entfallen vorerst.

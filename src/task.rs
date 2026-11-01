@@ -627,6 +627,61 @@ impl TaskGenerator for NegativeNumbers {
     }
 }
 
+/// Brüche kürzen: ein Bruch mit Nenner bis 6 (etwa 2/3), Zähler und Nenner mit 2 bis 5
+/// erweitert („10/15 = ?“). Gefragt ist der ganz gekürzte Bruch, getippt mit Bruchstrich. Mit 2
+/// erweiterte Brüche sind am leichtesten und kommen anfangs seltener.
+pub struct ReducingFractions {
+    /// Je Fakt der gekürzte Bruch und der Faktor, mit dem er erweitert wurde.
+    facts: Vec<(i32, i32, i32)>,
+    weights: Vec<f32>,
+    last: Option<usize>,
+}
+
+impl ReducingFractions {
+    const HINT: &'static str = "Zähler und Nenner durch dieselbe Zahl teilen";
+
+    pub fn new() -> Self {
+        let mut facts = Vec::new();
+        for denominator in 2..=6 {
+            for numerator in (1..denominator).filter(|n| gcd(*n, denominator) == 1) {
+                for factor in 2..=5 {
+                    facts.push((numerator, denominator, factor));
+                }
+            }
+        }
+        let weights = facts.iter().map(|(_, _, factor)| if *factor == 2 { 0.6 } else { 1.0 }).collect();
+        Self { facts, weights, last: None }
+    }
+}
+
+impl TaskGenerator for ReducingFractions {
+    fn next(&mut self, rng: &mut Rng) -> Task {
+        let fact = pick_weighted(&self.weights, |i| Some(i) == self.last, rng);
+        self.last = Some(fact);
+        let (numerator, denominator, factor) = self.facts[fact];
+        Task {
+            prompt: format!("{}/{} = ?", numerator * factor, denominator * factor),
+            answer: fraction(numerator, denominator),
+            fact,
+            time_limit: 12.0,
+            style: AnswerStyle::Fraction,
+            hint: Some(Self::HINT),
+        }
+    }
+
+    fn record(&mut self, task: &Task, outcome: &Outcome) {
+        reweigh(&mut self.weights[task.fact], outcome);
+    }
+
+    fn weights(&self) -> Vec<f32> {
+        self.weights.clone()
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        restore(&mut self.weights, weights);
+    }
+}
+
 /// Zieht ein Fakt nach Gewicht; `skip` schließt etwa die gerade gestellte Aufgabe aus.
 fn pick_weighted(weights: &[f32], skip: impl Fn(usize) -> bool, rng: &mut Rng) -> usize {
     let total: f32 = weights.iter().enumerate().filter(|(i, _)| !skip(*i)).map(|(_, w)| w).sum();
@@ -1396,5 +1451,43 @@ mod signed_tests {
             keys.clear();
         }
         assert_eq!(input, "-");
+    }
+}
+
+#[cfg(test)]
+mod fraction_tests {
+    use super::*;
+
+    #[test]
+    fn brueche_kuerzen() {
+        let mut rng = Rng::default();
+        let mut topic = ReducingFractions::new();
+        for _ in 0..2000 {
+            let task = topic.next(&mut rng);
+            let (left, _) = task.prompt.split_once(" = ").unwrap();
+            let (top, bottom) = left.split_once('/').unwrap();
+            let (top, bottom): (i32, i32) = (top.parse().unwrap(), bottom.parse().unwrap());
+            let (n, d) = split_fraction(task.answer);
+            assert_eq!(gcd(n, d), 1, "{}", task.prompt);
+            assert_eq!(top * d, bottom * n, "{}", task.prompt);
+            assert!(top > n && bottom <= 30, "{}", task.prompt);
+            assert!(task.check(&format!("{n}/{d}")));
+            // Gleicher Wert, aber nicht fertig gekürzt, zählt nicht.
+            assert!(!task.check(left));
+        }
+    }
+
+    #[test]
+    fn bruchstrich_erst_nach_dem_zaehler() {
+        let task = ReducingFractions::new().next(&mut Rng::default());
+        let mut keys = ButtonInput::<KeyCode>::default();
+        let mut input = String::new();
+        for key in [KeyCode::NumpadDivide, KeyCode::Numpad2, KeyCode::Space, KeyCode::NumpadDivide, KeyCode::Numpad3] {
+            keys.press(key);
+            task.type_into(&mut input, &keys);
+            keys.release(key);
+            keys.clear();
+        }
+        assert_eq!(input, "2/3");
     }
 }

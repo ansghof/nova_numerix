@@ -14,6 +14,8 @@ pub const VIOLET: LinearRgba = LinearRgba::rgb(1.8, 0.6, 4.0);
 pub const GREEN: LinearRgba = LinearRgba::rgb(0.6, 3.6, 1.0);
 pub const LIME: LinearRgba = LinearRgba::rgb(2.0, 3.6, 0.3);
 pub const PINK: LinearRgba = LinearRgba::rgb(3.8, 0.9, 1.9);
+/// Türkis, grüner als das Cyan des eigenen Schiffs.
+pub const TEAL: LinearRgba = LinearRgba::rgb(0.3, 3.4, 2.0);
 /// Eisblau, heller und kühler als das Cyan des eigenen Schiffs.
 pub const ICE: LinearRgba = LinearRgba::rgb(1.5, 2.3, 4.0);
 

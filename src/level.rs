@@ -5,10 +5,10 @@
 use bevy::prelude::*;
 
 use crate::enemy::Formation;
-use crate::neon::{GOLD, GREEN, ICE, MAGENTA, ORANGE, VIOLET};
+use crate::neon::{GOLD, GREEN, ICE, MAGENTA, ORANGE, TEAL, VIOLET};
 use crate::save::Mastery;
 use crate::shipyard::Credits;
-use crate::task::{BigTimesTable, BinaryNumbers, NegativeNumbers, RomanNumerals, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
+use crate::task::{BigTimesTable, BinaryNumbers, NegativeNumbers, ReducingFractions, RomanNumerals, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
 use crate::{AppState, GamePhase, Gameplay};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
@@ -67,6 +67,8 @@ pub enum BossStyle {
     Shield,
     /// Ein riesiger Eiskristall mit sechs verzweigten Armen
     Crystal,
+    /// Ein Rad aus Tortenstücken mit breitem Außenring
+    Wheel,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -81,6 +83,8 @@ pub enum Backdrop {
     RedPlanet,
     /// Ein Eismond am oberen Rand und quer durchs Bild die Nulllinie eines Zahlenstrahls
     IceMoon,
+    /// Ein schräg stehender Riesenring mit Segmenten um einen kleinen Planeten
+    RingWorld,
 }
 
 fn small_times_table() -> Box<dyn TaskGenerator> {
@@ -107,7 +111,11 @@ fn negative_numbers() -> Box<dyn TaskGenerator> {
     Box::new(NegativeNumbers::new())
 }
 
-pub const LEVELS: [LevelDef; 6] = [
+fn reducing_fractions() -> Box<dyn TaskGenerator> {
+    Box::new(ReducingFractions::new())
+}
+
+pub const LEVELS: [LevelDef; 7] = [
     LevelDef {
         world: "Neonnebel",
         topic: "Kleines 1×1",
@@ -204,6 +212,24 @@ pub const LEVELS: [LevelDef; 6] = [
             Formation::MineField,
             Formation::ZeroLine,
             Formation::Dive,
+            Formation::Seekers,
+        ],
+    },
+    LevelDef {
+        world: "Ringwelt",
+        topic: "Brüche kürzen",
+        grid: LinearRgba::rgb(0.05, 0.5, 0.3),
+        backdrop: Backdrop::RingWorld,
+        boss: BossDef { name: "Die Ringnabe", color: TEAL, style: BossStyle::Wheel },
+        make_topic: reducing_fractions,
+        // Räder, deren Nabe erst verwundbar ist, wenn alle Stücke ab sind; dazu Teiler.
+        formations: &[
+            Formation::Wheel,
+            Formation::Wheel,
+            Formation::Splitters,
+            Formation::Snake,
+            Formation::Wheel,
+            Formation::Ring,
             Formation::Seekers,
         ],
     },

@@ -6,14 +6,15 @@
 //! nur verwundbar, solange sie eine 1 zeigen, und Datenpakete rasen in Strömen vorbei. Am
 //! Mars-Außenposten marschieren Legionäre in Schildkröten-Formation: Nur wer vorn niemanden mehr
 //! vor sich hat, ist verwundbar. Auf dem Eismond pendeln Frostlinge über die Nulllinie: Oben, im
-//! Plus, kann man sie treffen, unten, im Minus, sind sie gepanzert.
+//! Plus, kann man sie treffen, unten, im Minus, sind sie gepanzert. In der Ringwelt kreisen
+//! Radstücke um eine Nabe, die erst verwundbar wird, wenn alle Stücke ab sind.
 //!
 //! Jede Frachtdrohne zeigt in ihrem Inneren und auf einem Schild darunter, was sie geladen hat.
 
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::neon::{GOLD, GREEN, ICE, LIME, MAGENTA, ORANGE, PINK, RED, Shape, VIOLET, WHITE, polygon, scaled};
+use crate::neon::{GOLD, GREEN, ICE, LIME, MAGENTA, ORANGE, PINK, RED, Shape, TEAL, VIOLET, WHITE, polygon, scaled};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Loadout, Player};
 use crate::rng::Rng;
@@ -60,6 +61,14 @@ const FROST_SPEED: f32 = 120.0;
 const FROST_SWING: f32 = 190.0;
 /// … und so schnell.
 const FROST_RATE: f32 = 1.3;
+/// Ein Rad zieht so schnell nach links …
+const WHEEL_SPEED: f32 = 105.0;
+/// … dreht sich so schnell …
+const WHEEL_SPIN: f32 = 1.1;
+/// … und seine Stücke kreisen in diesem Abstand um die Nabe.
+const WHEEL_RADIUS: f32 = 62.0;
+/// So viele Stücke hat ein Rad.
+const WHEEL_PIECES: usize = 6;
 /// So lange steigt der Schriftzug nach einer ausgelöschten Welle auf.
 const BANNER_TIME: f32 = 1.3;
 
@@ -74,7 +83,7 @@ impl Plugin for EnemyPlugin {
             .add_systems(Update, clear_on_start)
             .add_systems(
                 Update,
-                (spawn_waves, fly, testudo, follow_cargo, shoot, ram_player, flash, destroy, rise_banners).chain().in_set(Gameplay),
+                (spawn_waves, fly, testudo, wheels, follow_cargo, shoot, ram_player, flash, destroy, rise_banners).chain().in_set(Gameplay),
             );
     }
 }
@@ -108,6 +117,10 @@ pub enum EnemyKind {
     Legionary,
     /// Pendelt über die Nulllinie; nur im Plus verwundbar.
     Frost,
+    /// Mitte eines Rads; gepanzert, solange noch Stücke um sie kreisen.
+    Hub,
+    /// Ein Stück eines Rads
+    Piece,
 }
 
 /// Wie eine Welle aufgebaut ist.
@@ -141,6 +154,8 @@ pub enum Formation {
     Testudo,
     /// Frostlinge in einer Reihe, die als Welle über die Nulllinie schwingt
     ZeroLine,
+    /// Ein Rad: Nabe mit sechs Stücken
+    Wheel,
 }
 
 impl EnemyKind {
@@ -160,6 +175,8 @@ impl EnemyKind {
             Self::Packet => 1.0,
             Self::Legionary => 2.0,
             Self::Frost => 2.0,
+            Self::Hub => 5.0,
+            Self::Piece => 1.0,
         }
     }
 
@@ -179,16 +196,18 @@ impl EnemyKind {
             Self::Packet => 60,
             Self::Legionary => 110,
             Self::Frost => 120,
+            Self::Hub => 300,
+            Self::Piece => 60,
         }
     }
 
     /// Credits für den Abschuss.
     fn credits(self) -> u32 {
         match self {
-            Self::Shard | Self::Packet => 1,
+            Self::Shard | Self::Packet | Self::Piece => 1,
             Self::Wobbler | Self::Spinner | Self::Seeker | Self::Mine | Self::Bit | Self::Legionary | Self::Frost => 2,
             Self::Dart | Self::Splitter => 3,
-            Self::Turret => 4,
+            Self::Turret | Self::Hub => 4,
             Self::Freighter | Self::Cruiser => 6,
         }
     }
@@ -209,6 +228,8 @@ impl EnemyKind {
             Self::Packet => 10.0,
             Self::Legionary => 17.0,
             Self::Frost => 17.0,
+            Self::Hub => 22.0,
+            Self::Piece => 15.0,
         }
     }
 
@@ -276,6 +297,25 @@ impl EnemyKind {
                 .open(&[Vec2::new(-20.0, -12.0), Vec2::new(-30.0, -20.0)]),
             Self::Bit => bit_shape(false),
             Self::Frost => frost_shape(false),
+            // Eine Nabe mit Speichen
+            Self::Hub => {
+                let mut shape = Shape::new(TEAL).closed(&polygon(12, 20.0, 0.0)).closed(&polygon(6, 7.0, 0.0));
+                for i in 0..WHEEL_PIECES {
+                    let dir = Vec2::from_angle(i as f32 / WHEEL_PIECES as f32 * std::f32::consts::TAU);
+                    shape = shape.open(&[dir * 7.0, dir * 20.0]);
+                }
+                shape
+            }
+            // Ein Ringstück; sitzt rechts der Nabe und wird mit seinem Winkel gedreht.
+            Self::Piece => {
+                let half = std::f32::consts::PI / WHEEL_PIECES as f32 - 0.08;
+                let arc = |radius: f32| -> Vec<Vec2> {
+                    (0..=6).map(|i| Vec2::from_angle(-half + 2.0 * half * i as f32 / 6.0) * radius - Vec2::X * WHEEL_RADIUS).collect()
+                };
+                let mut outline = arc(WHEEL_RADIUS + 13.0);
+                outline.extend(arc(WHEEL_RADIUS - 13.0).into_iter().rev());
+                Shape::new(TEAL).closed(&outline)
+            }
             // Ein gewölbter Schild nach vorn, dahinter der Helm mit Busch.
             Self::Legionary => Shape::new(RED)
                 .closed(&[
@@ -666,6 +706,20 @@ fn spawn_waves(
                 members.push((frost, Vec2::new(spawn_x + i as f32 * 60.0, y)));
             }
         }
+        // Eine Nabe und ihre Stücke, alle mit demselben Mittelpunkt
+        Formation::Wheel => {
+            let center = Vec2::new(spawn_x + WHEEL_RADIUS, rng.range(-150.0, 150.0));
+            let mut hub = Enemy::new(EnemyKind::Hub, &mut rng);
+            hub.center = center;
+            members.push((hub, center));
+            for i in 0..WHEEL_PIECES {
+                let mut piece = Enemy::new(EnemyKind::Piece, &mut rng);
+                piece.center = center;
+                piece.wave_phase = i as f32 / WHEEL_PIECES as f32 * std::f32::consts::TAU;
+                let pos = center + Vec2::from_angle(piece.wave_phase) * WHEEL_RADIUS;
+                members.push((piece, pos));
+            }
+        }
         // Sechs Sucher, verstreut über die ganze Höhe
         Formation::Seekers => {
             for i in 0..6 {
@@ -734,12 +788,25 @@ fn fly(
             // Im Gleichschritt: alle mit derselben Welle, damit die Formation zusammenbleibt.
             EnemyKind::Legionary => Vec2::new(-LEGION_SPEED, (enemy.age * 1.2).sin() * 25.0),
             EnemyKind::Frost => Vec2::new(-FROST_SPEED, 0.0),
+            // Nabe und Stücke folgen ihrem gemeinsamen Mittelpunkt, siehe unten.
+            EnemyKind::Hub | EnemyKind::Piece => Vec2::ZERO,
         };
         transform.translation += (vel * dt).extend(0.0);
         match enemy.kind {
             // Alle Pakete eines Stroms folgen derselben Wellenbahn, die Höhe hängt nur von x ab.
             EnemyKind::Packet => {
                 transform.translation.y = enemy.center.y + (transform.translation.x * 0.011 + enemy.center.x).sin() * 150.0;
+            }
+            EnemyKind::Hub => {
+                enemy.center.x -= WHEEL_SPEED * dt;
+                transform.translation = enemy.center.extend(0.0);
+                transform.rotate_z(WHEEL_SPIN * dt);
+            }
+            EnemyKind::Piece => {
+                enemy.center.x -= WHEEL_SPEED * dt;
+                let angle = enemy.age * WHEEL_SPIN + enemy.wave_phase;
+                transform.translation = (enemy.center + Vec2::from_angle(angle) * WHEEL_RADIUS).extend(0.0);
+                transform.rotation = Quat::from_rotation_z(angle);
             }
             // Die Höhe folgt dem Pendel; unter der Nulllinie wird der Frostling zum Minus.
             EnemyKind::Frost => {
@@ -818,6 +885,22 @@ fn testudo(mut legionaries: Query<(Entity, &mut Enemy, &Transform)>) {
         if covered != enemy.shielded {
             enemy.shielded = covered;
             enemy.color = if covered { scaled(RED, 0.22) } else { scaled(RED, 1.3) };
+        }
+    }
+}
+
+/// Eine Nabe ist gepanzert, solange noch Stücke ihrer Welle um sie kreisen.
+fn wheels(mut enemies: Query<&mut Enemy>) {
+    let pieces: Vec<Option<u32>> =
+        enemies.iter().filter(|enemy| enemy.kind == EnemyKind::Piece && enemy.health > 0.0).map(|enemy| enemy.wave).collect();
+    for mut enemy in &mut enemies {
+        if enemy.kind != EnemyKind::Hub {
+            continue;
+        }
+        let covered = pieces.contains(&enemy.wave);
+        if covered != enemy.shielded {
+            enemy.shielded = covered;
+            enemy.color = if covered { scaled(TEAL, 0.3) } else { scaled(TEAL, 1.4) };
         }
     }
 }

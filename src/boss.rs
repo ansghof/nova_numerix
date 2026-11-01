@@ -20,7 +20,10 @@ use crate::player::{Loadout, Player};
 use crate::rng::Rng;
 use crate::shots::{Friendly, Shot, Targetable, spawn_enemy_shot};
 use crate::enemy::Enemy;
-use crate::task::{AnswerStyle, BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, TASK_CREDITS, Task, Topic, binary_digits, from_binary_digits};
+use crate::task::{
+    AnswerStyle, BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, TASK_CREDITS, Task, Topic, binary_digits, fraction,
+    from_binary_digits, gcd, split_fraction,
+};
 use crate::{AppState, Gameplay, Playfield, Shake};
 
 pub const BOSS_HEALTH: f32 = 150.0;
@@ -218,6 +221,19 @@ fn body_shape(def: &BossDef) -> Shape {
         for i in 0..9 {
             let y = -160.0 + i as f32 * 40.0;
             shape = shape.open(&[Vec2::new(85.0, y), Vec2::new(150.0 + (i as f32 - 4.0).abs() * -8.0, y + 12.0)]);
+        }
+        return shape.closed(&core_ring);
+    }
+    if def.style == BossStyle::Wheel {
+        // Die Ringnabe: ein Rad aus acht Tortenstücken mit breitem Außenring.
+        let center = Vec2::new(50.0, 0.0);
+        let mut shape = Shape::new(def.color)
+            .closed(&polygon(32, 205.0, 0.0).iter().map(|p| *p + center).collect::<Vec<_>>())
+            .closed(&polygon(32, 175.0, 0.0).iter().map(|p| *p + center).collect::<Vec<_>>())
+            .closed(&polygon(12, 55.0, 0.0).iter().map(|p| *p + center).collect::<Vec<_>>());
+        for i in 0..8 {
+            let dir = Vec2::from_angle(std::f32::consts::FRAC_PI_8 + i as f32 * std::f32::consts::FRAC_PI_4);
+            shape = shape.open(&[center + dir * 55.0, center + dir * 175.0]);
         }
         return shape.closed(&core_ring);
     }
@@ -460,6 +476,24 @@ fn distractors(answer: i32, rng: &mut Rng) -> Vec<i32> {
     out
 }
 
+/// Drei falsche, gekürzte Brüche in der Nähe der Lösung: Zähler oder Nenner um ein, zwei daneben.
+/// Ungekürzte Brüche mit demselben Wert kommen nicht vor, sie wären ja nicht falsch.
+fn fraction_distractors(answer: i32, rng: &mut Rng) -> Vec<i32> {
+    let (n, d) = split_fraction(answer);
+    let mut out = Vec::new();
+    for _ in 0..200 {
+        if out.len() == 3 {
+            break;
+        }
+        let (cn, cd) = (n + rng.below(5) as i32 - 2, d + rng.below(5) as i32 - 2);
+        let candidate = fraction(cn, cd);
+        if cn >= 1 && cn < cd && cd <= 9 && gcd(cn, cd) == 1 && candidate != answer && !out.contains(&candidate) {
+            out.push(candidate);
+        }
+    }
+    out
+}
+
 /// Bei negativen Zahlen der typische Fehler zuerst: das falsche Vorzeichen. Dazu Nachbarn, die
 /// auch auf der anderen Seite der Null liegen dürfen.
 fn signed_distractors(answer: i32, rng: &mut Rng) -> Vec<i32> {
@@ -486,6 +520,7 @@ fn new_round(boss: &mut Boss, plates: &mut Query<&mut Plate>, topic: &mut Topic,
     let mut values = match task.style {
         AnswerStyle::Binary => binary_distractors(task.answer, rng),
         AnswerStyle::Signed => signed_distractors(task.answer, rng),
+        AnswerStyle::Fraction => fraction_distractors(task.answer, rng),
         _ => distractors(task.answer, rng),
     };
     values.push(task.answer);
