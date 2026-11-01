@@ -142,10 +142,12 @@ pub enum Sfx {
     Buy,
     BossAlarm,
     Victory,
+    Plasma,
+    Zap,
 }
 
 impl Sfx {
-    pub const ALL: [Sfx; 18] = [
+    pub const ALL: [Sfx; 20] = [
         Sfx::Laser,
         Sfx::Missile,
         Sfx::Explosion,
@@ -164,6 +166,8 @@ impl Sfx {
         Sfx::Buy,
         Sfx::BossAlarm,
         Sfx::Victory,
+        Sfx::Plasma,
+        Sfx::Zap,
     ];
 
     /// Wie laut das Geräusch im Mix ist; Dauerfeuer bleibt leise.
@@ -173,6 +177,7 @@ impl Sfx {
             Sfx::Missile => 0.35,
             Sfx::Explosion => 0.5,
             Sfx::Click => 0.4,
+            Sfx::Plasma | Sfx::Zap => 0.35,
             _ => 0.7,
         }
     }
@@ -184,6 +189,7 @@ impl Sfx {
             Sfx::Missile => 0.2,
             Sfx::Explosion => 0.06,
             Sfx::PlayerHit => 0.15,
+            Sfx::Zap => 0.1,
             _ => 0.0,
         }
     }
@@ -290,6 +296,16 @@ impl Sfx {
                     b.tone(start, 0.22, 620.0, 620.0, Wave::Square, 0.2, 0.01, 0.5);
                     b.tone(start + 0.22, 0.22, 460.0, 460.0, Wave::Square, 0.2, 0.01, 0.5);
                 }
+            }
+            Sfx::Plasma => {
+                b = Buffer::new(0.4);
+                b.tone(0.0, 0.35, 180.0, 90.0, Wave::Saw, 0.3, 0.01, 1.2);
+                b.tone(0.0, 0.3, 720.0, 360.0, Wave::Sine, 0.25, 0.01, 1.5);
+            }
+            Sfx::Zap => {
+                b = Buffer::new(0.2);
+                b.noise(0.0, 0.18, 0.5, -0.6, 2.0);
+                b.tone(0.0, 0.15, 2400.0, 900.0, Wave::Square, 0.15, 0.001, 2.0);
             }
             Sfx::Victory => {
                 b = Buffer::new(2.2);

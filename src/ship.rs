@@ -62,7 +62,8 @@ impl Hull {
         match self {
             Hull::Spatz => 2,
             Hull::Falke => 3,
-            Hull::Kondor | Hull::Phoenix => 4,
+            Hull::Kondor => 4,
+            Hull::Phoenix => 5,
         }
     }
 

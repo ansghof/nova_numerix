@@ -191,6 +191,10 @@ pub struct SaveData {
     #[serde(default)]
     drones: u8,
     #[serde(default)]
+    plasma: u8,
+    #[serde(default)]
+    lightning: u8,
+    #[serde(default)]
     hull: u8,
     #[serde(default)]
     armor: u8,
@@ -222,6 +226,8 @@ impl SaveData {
             missiles: loadout.missiles,
             side: loadout.side,
             drones: loadout.drones,
+            plasma: 0,
+            lightning: 0,
             hull: 0,
             armor: 0,
             health: MAX_HEALTH,
@@ -272,6 +278,8 @@ impl GameState<'_, '_> {
             missiles: self.loadout.missiles,
             side: self.loadout.side,
             drones: self.loadout.drones,
+            plasma: self.loadout.plasma,
+            lightning: self.loadout.lightning,
             hull: self.ship.hull.index(),
             armor: self.ship.armor,
             health: self.player.health,
@@ -290,7 +298,14 @@ impl GameState<'_, '_> {
     fn apply(&mut self, data: SaveData) {
         self.name.0 = data.ship_name;
         *self.credits = Credits { bank: data.credits, flight: 0, secured: 0 };
-        *self.loadout = Loadout { laser: data.laser, missiles: data.missiles, side: data.side, drones: data.drones };
+        *self.loadout = Loadout {
+            laser: data.laser,
+            missiles: data.missiles,
+            side: data.side,
+            drones: data.drones,
+            plasma: data.plasma,
+            lightning: data.lightning,
+        };
         *self.ship = Ship { hull: Hull::from_index(data.hull), armor: data.armor.min(crate::ship::MAX_ARMOR) };
         // Die Schildgrenze passt sich gleich an den Rumpf an; bis dahin nicht kappen.
         self.player.max_health = self.ship.hull.max_health();

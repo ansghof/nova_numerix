@@ -12,6 +12,9 @@ use crate::{GamePhase, Gameplay, HALF_HEIGHT, Playfield};
 const LASER_SPEED: f32 = 1100.0;
 const MISSILE_SPEED: f32 = 520.0;
 const SIDE_SHOT_SPEED: f32 = 900.0;
+const PLASMA_SPEED: f32 = 480.0;
+/// Leuchtfarbe des Plasmas: helles Violett.
+pub const PLASMA: LinearRgba = LinearRgba::rgb(2.4, 0.9, 3.8);
 /// So schnell dreht eine Rakete zum Ziel, in Bogenmaß pro Sekunde.
 const MISSILE_TURN: f32 = 5.0;
 const ENEMY_SHOT_DAMAGE: f32 = 10.0;
@@ -43,6 +46,12 @@ pub struct Hostile;
 #[derive(Component)]
 struct Homing;
 
+/// Geht durch Gegner hindurch und trifft jeden nur einmal; Schilde halten es auf.
+#[derive(Component)]
+pub struct Piercing {
+    hit: Vec<Entity>,
+}
+
 /// Raketen suchen sich ihr Ziel unter allem, was dieses Merkmal trägt.
 #[derive(Component)]
 pub struct Targetable;
@@ -57,6 +66,25 @@ pub fn spawn_laser(commands: &mut Commands, pos: Vec2, dir: Vec2, color: LinearR
         Friendly,
         Shape::new(color).open(&[Vec2::new(-12.0, 0.0), Vec2::new(12.0, 0.0)]),
         oriented(pos, dir),
+    ));
+}
+
+/// Eine Plasmawelle: ein leuchtender Bogen, mit jeder Stufe breiter und stärker.
+pub fn spawn_plasma(commands: &mut Commands, pos: Vec2, level: u8) {
+    let radius = 12.0 + level as f32 * 5.0;
+    let arc: Vec<Vec2> = (0..=8)
+        .map(|i| {
+            let angle = (-70.0 + i as f32 * 17.5f32).to_radians();
+            Vec2::from_angle(angle) * radius - Vec2::X * radius * 0.6
+        })
+        .collect();
+    let inner: Vec<Vec2> = arc.iter().map(|p| *p * 0.7).collect();
+    commands.spawn((
+        Shot { vel: Vec2::X * PLASMA_SPEED, damage: 1.0 + level as f32, radius: radius * 0.8 },
+        Friendly,
+        Piercing { hit: Vec::new() },
+        Shape::new(PLASMA).open(&arc).open(&inner),
+        Transform::from_translation(pos.extend(0.5)),
     ));
 }
 
@@ -152,13 +180,13 @@ fn hit_enemies(
     mut commands: Commands,
     mut particles: ResMut<Particles>,
     mut rng: ResMut<Rng>,
-    shots: Query<(Entity, &Shot, &Transform), With<Friendly>>,
-    mut enemies: Query<(&mut Enemy, &Transform, &Hitbox)>,
+    mut shots: Query<(Entity, &Shot, &Transform, Option<&mut Piercing>), With<Friendly>>,
+    mut enemies: Query<(Entity, &mut Enemy, &Transform, &Hitbox)>,
 ) {
-    for (entity, shot, shot_transform) in &shots {
+    for (entity, shot, shot_transform, mut piercing) in &mut shots {
         let pos = shot_transform.translation.truncate();
-        for (mut enemy, transform, hitbox) in &mut enemies {
-            if enemy.health <= 0.0 {
+        for (enemy_entity, mut enemy, transform, hitbox) in &mut enemies {
+            if enemy.health <= 0.0 || piercing.as_ref().is_some_and(|p| p.hit.contains(&enemy_entity)) {
                 continue;
             }
             if pos.distance(transform.translation.truncate()) < hitbox.0 + shot.radius {
@@ -171,6 +199,11 @@ fn hit_enemies(
                 enemy.health -= shot.damage;
                 enemy.flash = 1.0;
                 particles.sparks(&mut rng, pos, WHITE, 5, 220.0);
+                // Plasma fliegt weiter und merkt sich, wen es schon getroffen hat.
+                if let Some(piercing) = &mut piercing {
+                    piercing.hit.push(enemy_entity);
+                    continue;
+                }
                 commands.entity(entity).try_despawn();
                 break;
             }

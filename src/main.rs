@@ -1,3 +1,4 @@
+mod arsenal;
 mod background;
 mod boss;
 #[cfg(debug_assertions)]
@@ -152,7 +153,7 @@ fn main() {
             hud::HudPlugin,
             menu::MenuPlugin,
         ))
-        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin, difficulty::DifficultyPlugin, sound::SoundPlugin, fonts::FontsPlugin, stars::StarsPlugin));
+        .add_plugins((shipyard::ShipyardPlugin, ship::ShipPlugin, save::SavePlugin, quibbo::QuibboPlugin, difficulty::DifficultyPlugin, sound::SoundPlugin, fonts::FontsPlugin, stars::StarsPlugin, arsenal::ArsenalPlugin));
     #[cfg(debug_assertions)]
     app.add_plugins(devtools::DevToolsPlugin);
     app.run();

@@ -116,10 +116,10 @@ Panzerplatten, Nachbrenner.
 | Spatz | 2 | 100 | Start | |
 | Falke | 3 | 120 | 3000 | Entenflügel |
 | Kondor | 4 | 140 | 5000 | Doppelflügel |
-| Phönix | 4 | 160 | 8000 | Schildgenerator: lädt im Flug 0,4 Schild je Sekunde nach |
+| Phönix | 5 | 160 | 8000 | Schildgenerator: lädt im Flug 0,4 Schild je Sekunde nach |
 
 Ein Waffenplatz trägt ein Waffensystem: Laser (immer an Bord), Raketen, Seitenkanonen,
-Drohnen. Ausbauen geht immer, ein neues System braucht einen freien Platz. Auf dem Spatz
+Drohnen, Plasmawerfer, Blitzbogen. Ausbauen geht immer, ein neues System braucht einen freien Platz. Auf dem Spatz
 heißt das: Laser plus eine weitere Waffe, also eine echte Entscheidung. Frachtdrohnen bringen
 keine neuen Systeme, wenn kein Platz frei ist; wird es unterwegs eng, gibt es stattdessen eine
 Reparatur.
@@ -206,6 +206,12 @@ Zeitlupen-Chips (+50 % Zeit für X Aufgaben), Rümpfe, Lackierungen.
   unten, gut gegen Geschütze am Rand), nach Boss 2 Begleitdrohnen (900 und 1800, max. 2:
   fliegen über und unter dem Schiff mit und feuern mit). Frachtdrohnen bringen die neuen
   Waffen ebenfalls, sobald Quibbo sie führt; Drohnen nur selten.
+- Nach Boss 3 Plasmawerfer (900, dann 600 × neue Stufe, max. 3): eine breite, langsame Welle,
+  die durch mehrere Gegner hindurchgeht und jeden einmal trifft; Schilde halten sie auf.
+  Nach Boss 4 Blitzbogen (1100, dann 700 × neue Stufe, max. 3): springt zum nächsten Gegner
+  (Reichweite 620) und von dort weiter, 3–5 Ziele je nach Stufe, auch über Schilde hinweg; das
+  Mittel gegen Bits und Legionäre. Beide sind am Schiff zu sehen (Emitter hinter dem Cockpit,
+  Spulen am Heck) und kommen auch als Fracht. Der Laden zeigt 8 Waren und blättert mit.
 - Bedienung in Menü und Werft auch mit der Maus: Zeigen wählt, Klicken bestätigt.
 - Rümpfe und Panzerung siehe oben. Im Laden: Panzerung und nächster Rumpf; Waffen ohne
   freien Platz stehen mit Hinweis da. Beim Verhandeln zeigt der Laden nur die Ware, um die es

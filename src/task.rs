@@ -16,7 +16,9 @@ use crate::shipyard::Credits;
 use crate::neon::{CYAN, GREEN, MAGENTA, Shape, VIOLET, WHITE, polygon};
 use crate::player::{Loadout, MAX_DRONES, MAX_LEVEL, MAX_SIDE, Player};
 use crate::ship::Ship;
-use crate::shipyard::{DRONES_AFTER, SIDE_AFTER};
+use crate::arsenal::{LIGHTNING, MAX_LIGHTNING, MAX_PLASMA};
+use crate::shipyard::{DRONES_AFTER, LIGHTNING_AFTER, PLASMA_AFTER, SIDE_AFTER};
+use crate::shots::PLASMA;
 use crate::rng::Rng;
 use crate::superweapon::FireSuper;
 
@@ -584,6 +586,8 @@ pub enum Reward {
     Repair,
     Side,
     Drone,
+    Plasma,
+    Lightning,
 }
 
 impl Reward {
@@ -594,6 +598,8 @@ impl Reward {
             Self::Repair => "Reparatur",
             Self::Side => "Seitenkanone +1",
             Self::Drone => "Begleitdrohne",
+            Self::Plasma => "Plasma +1",
+            Self::Lightning => "Blitzbogen +1",
         }
     }
 
@@ -605,6 +611,8 @@ impl Reward {
             Self::Repair => "Reparatur",
             Self::Side => "Seitenkanone",
             Self::Drone => "Drohne",
+            Self::Plasma => "Plasma",
+            Self::Lightning => "Blitz",
         }
     }
 
@@ -615,6 +623,8 @@ impl Reward {
             Self::Repair => GREEN,
             Self::Side => VIOLET,
             Self::Drone => MAGENTA,
+            Self::Plasma => PLASMA,
+            Self::Lightning => LIGHTNING,
         }
     }
 
@@ -654,6 +664,17 @@ impl Reward {
                 .closed(&polygon(4, 3.0, 0.0)),
             // Eine kleine Drohne
             Self::Drone => shape.closed(&polygon(4, 9.0, 0.0)).closed(&polygon(4, 3.5, std::f32::consts::FRAC_PI_4)),
+            // Zwei Plasmabögen
+            Self::Plasma => shape
+                .open(&[Vec2::new(-4.0, -8.0), Vec2::new(2.0, -4.0), Vec2::new(4.0, 0.0), Vec2::new(2.0, 4.0), Vec2::new(-4.0, 8.0)])
+                .open(&[Vec2::new(2.0, -8.0), Vec2::new(8.0, -4.0), Vec2::new(10.0, 0.0), Vec2::new(8.0, 4.0), Vec2::new(2.0, 8.0)]),
+            // Ein Blitz
+            Self::Lightning => shape.open(&[
+                Vec2::new(3.0, 10.0),
+                Vec2::new(-4.0, 1.0),
+                Vec2::new(2.0, 1.0),
+                Vec2::new(-3.0, -10.0),
+            ]),
         }
     }
 
@@ -682,6 +703,12 @@ impl Reward {
         {
             options.push(Self::Drone);
         }
+        if beaten >= PLASMA_AFTER && loadout.plasma < MAX_PLASMA && loadout.fits(loadout.plasma, platforms) {
+            options.push(Self::Plasma);
+        }
+        if beaten >= LIGHTNING_AFTER && loadout.lightning < MAX_LIGHTNING && loadout.fits(loadout.lightning, platforms) && rng.chance(0.5) {
+            options.push(Self::Lightning);
+        }
         if options.is_empty() { Self::Repair } else { options[rng.below(options.len())] }
     }
 
@@ -692,6 +719,8 @@ impl Reward {
             Self::Missiles => Some(loadout.missiles),
             Self::Side => Some(loadout.side),
             Self::Drone => Some(loadout.drones),
+            Self::Plasma => Some(loadout.plasma),
+            Self::Lightning => Some(loadout.lightning),
             _ => None,
         };
         if current.is_some_and(|level| !loadout.fits(level, platforms)) {
@@ -703,6 +732,8 @@ impl Reward {
             Self::Repair => player.health = (player.health + REPAIR_AMOUNT).min(player.max_health),
             Self::Side => loadout.side = (loadout.side + 1).min(MAX_SIDE),
             Self::Drone => loadout.drones = (loadout.drones + 1).min(MAX_DRONES),
+            Self::Plasma => loadout.plasma = (loadout.plasma + 1).min(MAX_PLASMA),
+            Self::Lightning => loadout.lightning = (loadout.lightning + 1).min(MAX_LIGHTNING),
         }
         self
     }

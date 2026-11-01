@@ -14,6 +14,7 @@ use crate::AppState;
 use crate::difficulty::Difficulty;
 use crate::level::{Campaign, CurrentLevel, LEVELS, LevelStarted};
 use crate::stars::{StarArt, star_row};
+use crate::arsenal::{MAX_LIGHTNING, MAX_PLASMA};
 use crate::player::{Loadout, MAX_DRONES, MAX_LEVEL, MAX_SIDE, Player};
 use crate::ship::{Hull, MAX_ARMOR, Ship};
 use crate::quibbo::QuibboArt;
@@ -159,11 +160,13 @@ enum Item {
     Missiles,
     Side,
     Drone,
+    Plasma,
+    Lightning,
     SuperCharge,
     SlowChip,
 }
 
-const ITEMS: [Item; 9] = [
+const ITEMS: [Item; 11] = [
     Item::Repair,
     Item::Armor,
     Item::Hull,
@@ -171,6 +174,8 @@ const ITEMS: [Item; 9] = [
     Item::Missiles,
     Item::Side,
     Item::Drone,
+    Item::Plasma,
+    Item::Lightning,
     Item::SuperCharge,
     Item::SlowChip,
 ];
@@ -182,6 +187,17 @@ const NO_PLATFORM: &str = "kein Waffenplatz frei – ein größerer Rumpf hat me
 /// stehen sie mit einem Hinweis im Laden, damit man weiß, worauf man hinarbeitet.
 pub const SIDE_AFTER: usize = 1;
 pub const DRONES_AFTER: usize = 2;
+pub const PLASMA_AFTER: usize = 3;
+pub const LIGHTNING_AFTER: usize = 4;
+const PLASMA_PRICE: u32 = 900;
+const PLASMA_PRICE_PER_LEVEL: u32 = 600;
+const LIGHTNING_PRICE: u32 = 1100;
+const LIGHTNING_PRICE_PER_LEVEL: u32 = 700;
+/// So viele Waren stehen auf einmal im Laden; der Rest wird geblättert.
+const VISIBLE_ITEMS: usize = 8;
+/// Zeilen-Kennungen für „weitere Waren“ oben und unten, damit man auch mit der Maus blättern kann.
+const SCROLL_UP: usize = 100;
+const SCROLL_DOWN: usize = 101;
 const SIDE_PRICE: u32 = 500;
 const SIDE_PRICE_PER_LEVEL: u32 = 450;
 const DRONE_PRICE: u32 = 900;
@@ -191,6 +207,8 @@ pub fn new_goods(beaten: usize) -> Option<&'static str> {
     match beaten {
         SIDE_AFTER => Some("Seitenkanonen"),
         DRONES_AFTER => Some("Begleitdrohnen"),
+        PLASMA_AFTER => Some("Plasmawerfer"),
+        LIGHTNING_AFTER => Some("Blitzbogen"),
         _ => None,
     }
 }
@@ -214,6 +232,8 @@ struct ShipState {
     missiles: u8,
     side: u8,
     drones: u8,
+    plasma: u8,
+    lightning: u8,
     bought_charges: u8,
     chips: u32,
     beaten: usize,
@@ -231,6 +251,8 @@ impl ShipState {
             missiles: loadout.missiles,
             side: loadout.side,
             drones: loadout.drones,
+            plasma: loadout.plasma,
+            lightning: loadout.lightning,
             bought_charges: weapon.bought,
             chips: chips.0,
             beaten: campaign.beaten,
@@ -305,6 +327,28 @@ impl Item {
                     price,
                 )
             }
+            Item::Plasma if ship.beaten < PLASMA_AFTER => ("Plasmawerfer".into(), locked(PLASMA_AFTER), None),
+            Item::Plasma if ship.plasma == 0 && !ship.free_platform => ("Plasmawerfer".into(), NO_PLATFORM.into(), None),
+            Item::Plasma => {
+                let price = match ship.plasma {
+                    0 => Some(PLASMA_PRICE),
+                    p if p < MAX_PLASMA => Some(PLASMA_PRICE_PER_LEVEL * (p as u32 + 1)),
+                    _ => None,
+                };
+                let name = if ship.plasma == 0 { "Plasmawerfer".to_string() } else { format!("Plasma Stufe {}", ship.plasma + 1) };
+                (name, "Welle, die durch mehrere Gegner hindurchgeht".into(), price)
+            }
+            Item::Lightning if ship.beaten < LIGHTNING_AFTER => ("Blitzbogen".into(), locked(LIGHTNING_AFTER), None),
+            Item::Lightning if ship.lightning == 0 && !ship.free_platform => ("Blitzbogen".into(), NO_PLATFORM.into(), None),
+            Item::Lightning => {
+                let price = match ship.lightning {
+                    0 => Some(LIGHTNING_PRICE),
+                    l if l < MAX_LIGHTNING => Some(LIGHTNING_PRICE_PER_LEVEL * (l as u32 + 1)),
+                    _ => None,
+                };
+                let name = if ship.lightning == 0 { "Blitzbogen".to_string() } else { format!("Blitzbogen Stufe {}", ship.lightning + 1) };
+                (name, "springt von Gegner zu Gegner, auch über Schilde".into(), price)
+            }
             Item::SuperCharge => {
                 let price = (ship.bought_charges < MAX_BOUGHT_CHARGES).then_some(SUPER_PRICE);
                 (
@@ -326,7 +370,8 @@ enum View {
     Hub { selected: usize, level: usize },
     Training { run: Option<Run>, wait: f32, feedback: Option<(String, Color)>, earned: u32 },
     /// `intro`: Beim Betreten erklärt Quibbo zuerst, wie sein Laden funktioniert.
-    Shop { selected: usize, haggle: Option<Haggle>, feedback: Option<(String, Color)>, intro: bool },
+    /// `scroll`: erste sichtbare Ware, wenn nicht alle auf einmal aufs Bild passen.
+    Shop { selected: usize, haggle: Option<Haggle>, feedback: Option<(String, Color)>, intro: bool, scroll: usize },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -368,7 +413,7 @@ impl Shipyard {
     fn hover(&mut self, row: usize) {
         match &mut self.view {
             View::Hub { selected, .. } if *selected != row => *selected = row,
-            View::Shop { selected, haggle: None, intro: false, feedback } if *selected != row => {
+            View::Shop { selected, haggle: None, intro: false, feedback, .. } if *selected != row && row < ITEMS.len() => {
                 *selected = row;
                 *feedback = None;
             }
@@ -559,7 +604,7 @@ fn update(
                 changed = true;
                 match *selected {
                     0 => next_view = Some(View::Training { run: None, wait: 0.0, feedback: None, earned: 0 }),
-                    1 => next_view = Some(View::Shop { selected: 0, haggle: None, feedback: None, intro: true }),
+                    1 => next_view = Some(View::Shop { selected: 0, haggle: None, feedback: None, intro: true, scroll: 0 }),
                     2 => {
                         started.write(LevelStarted(*level));
                     }
@@ -613,7 +658,7 @@ fn update(
                 changed = true;
             }
         }
-        View::Shop { selected, haggle, feedback, .. } => {
+        View::Shop { selected, haggle, feedback, scroll, .. } => {
             let ship = ShipState::new(&player, &vessel, &loadout, &weapon, &chips, &campaign);
             if let Some(h) = haggle {
                 if let Some((_, _, remaining)) = &mut h.result {
@@ -667,6 +712,21 @@ fn update(
                     *selected = (*selected + 1) % ITEMS.len();
                     *feedback = None;
                 }
+                // Blättern per Klick auf „weitere Waren“.
+                if clicked == Some(SCROLL_UP) {
+                    *selected = scroll.saturating_sub(1);
+                }
+                if clicked == Some(SCROLL_DOWN) {
+                    *selected = (*scroll + VISIBLE_ITEMS).min(ITEMS.len() - 1);
+                }
+                // Die gewählte Ware bleibt im sichtbaren Ausschnitt.
+                if *selected < *scroll {
+                    *scroll = *selected;
+                }
+                if *selected >= *scroll + VISIBLE_ITEMS {
+                    *scroll = *selected + 1 - VISIBLE_ITEMS;
+                }
+                let scrolled = matches!(clicked, Some(SCROLL_UP | SCROLL_DOWN));
                 let item = ITEMS[*selected];
                 let (name, _, list) = item.offer(&ship);
                 if keys.just_pressed(KeyCode::KeyV) {
@@ -679,7 +739,8 @@ fn update(
                         None
                     };
                 }
-                if confirm(&keys) {
+                // Ein Klick aufs Blättern ist kein Kauf.
+                if confirm(&keys) && !scrolled {
                     changed = true;
                     *feedback = Some(match list {
                         None => ("Das gibt es gerade nicht.".into(), DIM),
@@ -705,6 +766,8 @@ fn update(
                                     Item::Missiles => loadout.missiles += 1,
                                     Item::Side => loadout.side += 1,
                                     Item::Drone => loadout.drones += 1,
+                                    Item::Plasma => loadout.plasma += 1,
+                                    Item::Lightning => loadout.lightning += 1,
                                     Item::SuperCharge => weapon.bought += 1,
                                     Item::SlowChip => chips.0 += CHIPS_PER_PACK,
                                 }
@@ -936,7 +999,7 @@ fn render(
             text(c, enter, "Laden betreten", TEXT, 20.0);
             text(c, content, "Enter oder Klick: Laden betreten · Esc: zurück zur Werft", DIM, 14.0);
         }
-        View::Shop { selected, haggle, feedback, .. } => {
+        View::Shop { selected, haggle, feedback, scroll, .. } => {
             text(c, content, "Quibbos Laden", FRAME, 26.0);
             let greeting = match shipyard.mood.0 {
                 Mood::Neutral => "„Wer gut rechnet, zahlt weniger.“",
@@ -949,9 +1012,14 @@ fn render(
                 .id();
             text(c, header, greeting, DIM, 16.0);
             text(c, header, format!("{} Credits", credits.bank), OKAY, 20.0);
+            let window = *scroll..(*scroll + VISIBLE_ITEMS).min(ITEMS.len());
+            if haggle.is_none() && *scroll > 0 {
+                let up = clickable_row(c, content, SCROLL_UP, false);
+                text(c, up, format!("↑ {} weitere Waren", scroll), DIM, 14.0);
+            }
             for (i, item) in ITEMS.iter().enumerate() {
-                // Beim Verhandeln steht nur die Ware da, um die es geht; sonst passt es nicht aufs Bild.
-                if haggle.as_ref().is_some_and(|h| h.item != *item) {
+                // Beim Verhandeln steht nur die Ware da, um die es geht; sonst nur der sichtbare Ausschnitt.
+                if haggle.as_ref().is_some_and(|h| h.item != *item) || (haggle.is_none() && !window.contains(&i)) {
                     continue;
                 }
                 let (name, description, list) = item.offer(&ship);
@@ -971,6 +1039,10 @@ fn render(
                     }
                 };
                 text(c, r, price, color, 19.0);
+            }
+            if haggle.is_none() && window.end < ITEMS.len() {
+                let down = clickable_row(c, content, SCROLL_DOWN, false);
+                text(c, down, format!("↓ {} weitere Waren", ITEMS.len() - window.end), DIM, 14.0);
             }
             if let Some(h) = haggle {
                 let panel = c

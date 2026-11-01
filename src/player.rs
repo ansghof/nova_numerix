@@ -9,7 +9,9 @@ use crate::boss::BossState;
 use crate::level::{LevelStarted, Rewind};
 use crate::shipyard::Credits;
 use crate::neon::{CYAN, GREEN, Shape, WHITE, polygon, scaled};
+use crate::arsenal::LIGHTNING;
 use crate::ship::Hull;
+use crate::shots::PLASMA;
 use crate::particles::Particles;
 use crate::rng::Rng;
 use crate::shots;
@@ -107,18 +109,20 @@ pub struct Loadout {
     /// Seitenkanonen feuern schräg nach oben und unten, gut gegen Geschütze am Rand.
     pub side: u8,
     pub drones: u8,
+    pub plasma: u8,
+    pub lightning: u8,
 }
 
 impl Default for Loadout {
     fn default() -> Self {
-        Self { laser: 1, missiles: 0, side: 0, drones: 0 }
+        Self { laser: 1, missiles: 0, side: 0, drones: 0, plasma: 0, lightning: 0 }
     }
 }
 
 impl Loadout {
     /// Wie viele Waffensysteme an Bord sind; der Laser ist immer dabei.
     pub fn systems(&self) -> usize {
-        1 + [self.missiles, self.side, self.drones].iter().filter(|level| **level > 0).count()
+        1 + [self.missiles, self.side, self.drones, self.plasma, self.lightning].iter().filter(|level| **level > 0).count()
     }
 
     /// Ob ein Waffensystem dieser Stufe noch dazupasst: ausbauen geht immer, ein neues System
@@ -130,7 +134,14 @@ impl Loadout {
     /// Kurzbeschreibung für HUD, Werft und Siegerbildschirm.
     pub fn describe(&self) -> String {
         let mut text = format!("Laser {}", self.laser);
-        for (level, name) in [(self.missiles, "Raketen"), (self.side, "Seitenkanonen"), (self.drones, "Drohnen")] {
+        let systems = [
+            (self.missiles, "Raketen"),
+            (self.side, "Seitenkanonen"),
+            (self.drones, "Drohnen"),
+            (self.plasma, "Plasma"),
+            (self.lightning, "Blitz"),
+        ];
+        for (level, name) in systems {
             if level > 0 {
                 text += &format!(" · {name} {level}");
             }
@@ -361,6 +372,27 @@ fn show_weapons(
         }
     }
     commands.spawn((WeaponMounts, shape, Transform::default(), ChildOf(*player)));
+    // Plasmawerfer: ein Emitter hinter dem Cockpit mit einem Ring je Stufe.
+    if loadout.plasma > 0 {
+        let mut emitter = Shape::new(PLASMA).closed(&polygon(6, 3.0, 0.0).iter().map(|p| *p + Vec2::new(-8.0, 0.0)).collect::<Vec<_>>());
+        for i in 0..loadout.plasma {
+            let r = 5.0 + i as f32 * 2.5;
+            let arc: Vec<Vec2> = (0..=6)
+                .map(|k| Vec2::new(-8.0, 0.0) + Vec2::from_angle((-60.0 + k as f32 * 20.0f32).to_radians()) * r)
+                .collect();
+            emitter = emitter.open(&arc);
+        }
+        commands.spawn((WeaponMounts, emitter, Transform::default(), ChildOf(*player)));
+    }
+    // Blitzbogen: Zickzack-Spulen am Heck, eine je Stufe.
+    if loadout.lightning > 0 {
+        let mut coil = Shape::new(LIGHTNING);
+        for i in 0..loadout.lightning {
+            let x = -14.0 - i as f32 * 5.0;
+            coil = coil.open(&[Vec2::new(x, -5.0), Vec2::new(x - 3.0, -2.0), Vec2::new(x + 1.0, 1.0), Vec2::new(x - 2.0, 5.0)]);
+        }
+        commands.spawn((WeaponMounts, coil, Transform::default(), ChildOf(*player)));
+    }
 }
 
 /// So viele Drohnen, wie die Bewaffnung vorsieht; neue erscheinen direkt am Schiff.

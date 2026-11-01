@@ -15,7 +15,7 @@
 //! - `maus X Y`: Mauszeiger auf X % der Breite und Y % der Höhe des Fensters
 //! - `klick`: linke Maustaste drücken und im nächsten Bild loslassen
 //! - `level N`: Level N starten
-//! - `waffen L R S D`: Laser, Raketen, Seitenkanonen und Drohnen auf diese Stufen setzen
+//! - `waffen L R S D [P B]`: Laser, Raketen, Seitenkanonen, Drohnen und optional Plasma und Blitz setzen
 //! - `besiegt N`: so viele Bosse gelten als besiegt (schaltet Ware im Laden frei)
 //! - `rumpf N`: Rumpf N (1 Spatz … 4 Phönix) einbauen
 //! - `panzerung N`: Panzerung auf Stufe N setzen
@@ -196,8 +196,13 @@ fn play_script(
             started.write(LevelStarted(n.clamp(1, LEVELS.len()) - 1));
         } else if let Some(rest) = action.strip_prefix("waffen ") {
             let levels: Vec<u8> = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
-            if let [laser, missiles, side, drones] = levels[..] {
-                *loadout = Loadout { laser, missiles, side, drones };
+            // Vier oder sechs Werte: Laser, Raketen, Seitenkanonen, Drohnen, Plasma, Blitz.
+            match levels[..] {
+                [laser, missiles, side, drones] => *loadout = Loadout { laser, missiles, side, drones, plasma: 0, lightning: 0 },
+                [laser, missiles, side, drones, plasma, lightning] => {
+                    *loadout = Loadout { laser, missiles, side, drones, plasma, lightning }
+                }
+                _ => warn!("Test: waffen braucht vier oder sechs Werte"),
             }
         } else if let Some(n) = action.strip_prefix("besiegt ").and_then(|n| n.parse().ok()) {
             campaign.beaten = n;
