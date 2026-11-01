@@ -79,6 +79,16 @@ fn draw(mut gizmos: Gizmos, time: Res<Time>, field: Res<Starfield>, level: Res<C
                 gizmos.line_2d(Vec2::new(center.x - half, y), Vec2::new(center.x + half, y), band);
             }
         }
+        Backdrop::RedPlanet => {
+            // Der Mars ragt von unten ins Bild, mit ein paar Kratern.
+            let center = Vec2::new(-150.0, -HALF_HEIGHT - 380.0);
+            let radius = 600.0;
+            gizmos.circle_2d(center, radius, LinearRgba::rgb(0.6, 0.12, 0.04)).resolution(160);
+            for (angle, distance, size) in [(1.35, 520.0, 34.0), (1.75, 545.0, 22.0), (1.15, 480.0, 18.0), (2.05, 500.0, 40.0)] {
+                let at = center + Vec2::from_angle(angle) * distance;
+                gizmos.ellipse_2d(Isometry2d::from_translation(at), Vec2::new(size, size * 0.45), LinearRgba::rgb(0.32, 0.07, 0.03));
+            }
+        }
         Backdrop::DataRain => {
             // Senkrechte Datenströme, die langsam herabrieseln.
             let t = time.elapsed_secs();

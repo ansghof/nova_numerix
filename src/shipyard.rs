@@ -21,7 +21,7 @@ use crate::rng::Rng;
 use crate::sound::{PlaySfx, outcome_sfx};
 use crate::synth::Sfx;
 use crate::superweapon::SuperWeapon;
-use crate::task::{FAST_SHARE, Outcome, SlowChips, Task, Topic, read_digit};
+use crate::task::{FAST_SHARE, Outcome, SlowChips, Task, Topic};
 
 const BACKGROUND_IMAGE: &str = "menu.png";
 /// Credits pro richtiger Trainingsaufgabe, dazu ein Tempo-Bonus.
@@ -130,17 +130,17 @@ impl Run {
     /// Nimmt Ziffern, Rücktaste und Enter entgegen; gibt das Ergebnis zurück, sobald es feststeht.
     fn feed(&mut self, keys: &ButtonInput<KeyCode>, dt: f32) -> Option<Outcome> {
         self.elapsed += dt;
-        if let Some(digit) = read_digit(keys)
-            && self.input.len() < 4
+        if let Some(key) = self.task.read_key(keys)
+            && self.input.len() < self.task.max_len()
         {
-            self.input.push(digit);
+            self.input.push(key);
         }
         if keys.just_pressed(KeyCode::Backspace) {
             self.input.pop();
         }
         let submitted = (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && !self.input.is_empty();
         if submitted {
-            return Some(if self.input.parse::<u32>() == Ok(self.task.answer) {
+            return Some(if self.task.check(&self.input) {
                 Outcome::Correct { remaining_share: self.share() }
             } else {
                 Outcome::Wrong
@@ -378,8 +378,8 @@ impl Shipyard {
 
     /// Lösung der gerade offenen Aufgabe, für automatische Testläufe.
     #[cfg(debug_assertions)]
-    pub fn open_answer(&self) -> Option<u32> {
-        current_run(self).map(|run| run.task.answer)
+    pub fn open_answer(&self) -> Option<String> {
+        current_run(self).map(|run| run.task.show(run.task.answer))
     }
 }
 
@@ -818,6 +818,9 @@ fn task_block(commands: &mut Commands, parent: Entity, run: &Run) {
         ))
         .id();
     text(commands, block, run.task.with(&format!("{}_", run.input)), TEXT, 48.0);
+    if let Some(hint) = run.task.hint {
+        text(commands, block, hint, OKAY, 16.0);
+    }
     let bar = commands
         .spawn((
             Node { width: Val::Px(380.0), height: Val::Px(10.0), border_radius: BorderRadius::all(Val::Px(5.0)), ..default() },
@@ -912,7 +915,8 @@ fn render(
             if let Some((message, color)) = feedback {
                 text(c, content, message.clone(), *color, 18.0);
             }
-            text(c, content, "Nummernblock · Enter · Esc zurück zur Werft", DIM, 14.0);
+            let keys = run.as_ref().map(|r| r.task.input_hint()).unwrap_or("Nummernblock");
+            text(c, content, format!("{keys} · Enter · Esc zurück zur Werft"), DIM, 14.0);
         }
         View::Shop { intro: true, .. } => {
             text(c, content, "Quibbos Laden", FRAME, 32.0);
@@ -997,7 +1001,7 @@ fn render(
                 text(c, content, message.clone(), *color, 17.0);
             }
             let help = if haggle.is_some() {
-                "Nummernblock: Antwort tippen · Enter abgeben · Esc abbrechen"
+                "Antwort tippen · Enter abgeben · Esc abbrechen"
             } else {
                 "W/S oder Maus wählen · Enter oder Klick kaufen · V verhandeln · Esc zurück"
             };

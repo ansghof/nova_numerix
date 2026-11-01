@@ -20,7 +20,7 @@ use crate::player::{Loadout, Player};
 use crate::rng::Rng;
 use crate::shots::{Friendly, Shot, Targetable, spawn_enemy_shot};
 use crate::enemy::Enemy;
-use crate::task::{BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, TASK_CREDITS, Task, Topic, binary_digits, from_binary_digits};
+use crate::task::{AnswerStyle, BASE_POINTS, FAST_SHARE, Outcome, PendingTasks, SPEED_POINTS, TASK_CREDITS, Task, Topic, binary_digits, from_binary_digits};
 use crate::{AppState, Gameplay, Playfield, Shake};
 
 pub const BOSS_HEALTH: f32 = 150.0;
@@ -186,6 +186,38 @@ fn body_shape(def: &BossDef) -> Shape {
         for i in 0..9 {
             let y = -160.0 + i as f32 * 40.0;
             shape = shape.open(&[Vec2::new(130.0, y), Vec2::new(158.0, y)]);
+        }
+        return shape.closed(&core_ring);
+    }
+    if def.style == BossStyle::Shield {
+        // Der Zenturio: ein großer, gewölbter Legionärsschild mit Buckel, dahinter der Helmbusch.
+        let mut shape = Shape::new(def.color)
+            .closed(&[
+                Vec2::new(-110.0, -170.0),
+                Vec2::new(-95.0, -200.0),
+                Vec2::new(70.0, -200.0),
+                Vec2::new(85.0, -170.0),
+                Vec2::new(85.0, 170.0),
+                Vec2::new(70.0, 200.0),
+                Vec2::new(-95.0, 200.0),
+                Vec2::new(-110.0, 170.0),
+            ])
+            .closed(&[Vec2::new(-92.0, -182.0), Vec2::new(67.0, -182.0), Vec2::new(67.0, 182.0), Vec2::new(-92.0, 182.0)])
+            .open(&[Vec2::new(-12.0, -182.0), Vec2::new(-12.0, -45.0)])
+            .open(&[Vec2::new(-12.0, 45.0), Vec2::new(-12.0, 182.0)]);
+        // Blitze auf dem Schild
+        for side in [1.0, -1.0] {
+            shape = shape.open(&[
+                Vec2::new(10.0, 60.0 * side),
+                Vec2::new(40.0, 95.0 * side),
+                Vec2::new(25.0, 105.0 * side),
+                Vec2::new(55.0, 150.0 * side),
+            ]);
+        }
+        // Helmbusch hinter dem Schild
+        for i in 0..9 {
+            let y = -160.0 + i as f32 * 40.0;
+            shape = shape.open(&[Vec2::new(85.0, y), Vec2::new(150.0 + (i as f32 - 4.0).abs() * -8.0, y + 12.0)]);
         }
         return shape.closed(&core_ring);
     }
@@ -413,7 +445,8 @@ fn distractors(answer: u32, rng: &mut Rng) -> Vec<u32> {
 
 fn new_round(boss: &mut Boss, plates: &mut Query<&mut Plate>, topic: &mut Topic, rng: &mut Rng) {
     let task = topic.next(rng);
-    let mut values = if task.binary { binary_distractors(task.answer, rng) } else { distractors(task.answer, rng) };
+    let mut values =
+        if task.style == AnswerStyle::Binary { binary_distractors(task.answer, rng) } else { distractors(task.answer, rng) };
     values.push(task.answer);
     for i in (1..values.len()).rev() {
         values.swap(i, rng.below(i + 1));
@@ -626,7 +659,12 @@ fn animate(
         if let Ok((mut text, mut font, mut visibility)) = labels.get_mut(plate.label) {
             text.0 = boss.task.as_ref().map(|t| t.show(plate.value)).unwrap_or_default();
             // Vier Binärziffern brauchen eine kleinere Schrift, um auf die Platte zu passen.
-            let size = FontSize::Px(if text.0.len() > 3 { 20.0 } else { 30.0 });
+            // Lange Zahlen (Binärzahlen, römische wie LXXXVIII) brauchen eine kleinere Schrift.
+            let size = FontSize::Px(match text.0.chars().count() {
+                0..=3 => 30.0,
+                4..=5 => 20.0,
+                _ => 14.0,
+            });
             if font.font_size != size {
                 font.font_size = size;
             }

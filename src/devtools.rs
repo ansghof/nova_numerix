@@ -231,14 +231,20 @@ fn play_script(
         } else if action == "ende" {
             exit.write(AppExit::Success);
         } else if action == "antwort" {
-            let open = active.as_ref().map(|a| a.task.answer).or_else(|| shipyard.as_ref().and_then(|s| s.open_answer()));
+            let open = active.as_ref().map(|a| a.task.show(a.task.answer)).or_else(|| shipyard.as_ref().and_then(|s| s.open_answer()));
             let Some(answer) = open else {
                 warn!("Test: keine offene Aufgabe");
                 continue;
             };
-            let answer = answer.to_string();
-            let digits = answer.chars().filter_map(|c| digit(c.to_digit(10)?));
-            script.keys.extend(digits.chain([KeyCode::Enter]));
+            let keys = answer.chars().filter_map(|c| match c {
+                'I' => Some(KeyCode::KeyI),
+                'V' => Some(KeyCode::KeyV),
+                'X' => Some(KeyCode::KeyX),
+                'L' => Some(KeyCode::KeyL),
+                'C' => Some(KeyCode::KeyC),
+                _ => digit(c.to_digit(10)?),
+            });
+            script.keys.extend(keys.chain([KeyCode::Enter]));
         } else if let Some(code) = key(&action) {
             script.keys.push_back(code);
         } else {

@@ -34,7 +34,6 @@ pub const BASE_POINTS: f32 = 100.0;
 pub const SPEED_POINTS: f32 = 400.0;
 /// Ab diesem Anteil an Restzeit gilt eine Antwort als blitzschnell.
 pub const FAST_SHARE: f32 = 0.5;
-const MAX_DIGITS: usize = 4;
 /// Die Superwaffe hat etwas mehr Zeit, weil ein Fehler eine zweite Aufgabe nach sich zieht.
 const SUPER_EXTRA_TIME: f32 = 3.0;
 /// Credits für jede richtig gelöste Aufgabe im Flug.
@@ -82,9 +81,8 @@ pub struct Task {
     pub fact: usize,
     /// Zeitlimit in echten Sekunden.
     pub time_limit: f32,
-    /// Die Antwort ist eine Binärzahl aus Nullen und Einsen, etwa 101 für „0101₂“. Sie wird
-    /// vierstellig angezeigt; führende Nullen darf man weglassen.
-    pub binary: bool,
+    /// Wie die Antwort geschrieben und eingetippt wird.
+    pub style: AnswerStyle,
     /// Eine Merkhilfe unter der Aufgabe, etwa die Stellenwerte der Binärzahlen.
     pub hint: Option<&'static str>,
 }
@@ -100,10 +98,83 @@ impl Task {
         self.with(&self.show(self.answer))
     }
 
-    /// Eine Zahl so, wie sie als Antwort aussieht: Binärzahlen vierstellig mit führenden Nullen.
+    /// Eine Zahl so, wie sie als Antwort aussieht: Binärzahlen vierstellig mit führenden Nullen,
+    /// römische Zahlen in Buchstaben.
     pub fn show(&self, value: u32) -> String {
-        if self.binary { format!("{value:04}") } else { value.to_string() }
+        match self.style {
+            AnswerStyle::Number => value.to_string(),
+            AnswerStyle::Binary => format!("{value:04}"),
+            AnswerStyle::Roman => roman(value),
+        }
     }
+
+    /// Ein Zeichen der Eingabe: Ziffern, bei römischen Antworten die Buchstaben I, V, X, L, C.
+    pub fn read_key(&self, keys: &ButtonInput<KeyCode>) -> Option<char> {
+        match self.style {
+            AnswerStyle::Roman => {
+                const LETTERS: [(KeyCode, char); 5] =
+                    [(KeyCode::KeyI, 'I'), (KeyCode::KeyV, 'V'), (KeyCode::KeyX, 'X'), (KeyCode::KeyL, 'L'), (KeyCode::KeyC, 'C')];
+                LETTERS.iter().find(|(key, _)| keys.just_pressed(*key)).map(|(_, c)| *c)
+            }
+            _ => read_digit(keys),
+        }
+    }
+
+    /// Womit man die Antwort eintippt.
+    pub fn input_hint(&self) -> &'static str {
+        if self.style == AnswerStyle::Roman { "Tasten I V X L C" } else { "Nummernblock" }
+    }
+
+    /// Längste sinnvolle Eingabe; LXXXVIII (88) hat acht Zeichen.
+    pub fn max_len(&self) -> usize {
+        if self.style == AnswerStyle::Roman { 9 } else { 4 }
+    }
+
+    /// Ob die Eingabe stimmt. Römisch zählt nur die übliche Schreibweise: XL, nicht XXXX.
+    pub fn check(&self, input: &str) -> bool {
+        match self.style {
+            AnswerStyle::Roman => input == roman(self.answer),
+            _ => input.parse::<u32>() == Ok(self.answer),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum AnswerStyle {
+    #[default]
+    Number,
+    /// Eine Binärzahl aus Nullen und Einsen, etwa 101 für „0101₂“; vierstellig angezeigt,
+    /// führende Nullen darf man weglassen.
+    Binary,
+    /// Eine römische Zahl, getippt mit den Buchstabentasten.
+    Roman,
+}
+
+/// Eine Zahl von 1 bis 3999 in römischer Schreibweise: 47 → XLVII.
+pub fn roman(mut n: u32) -> String {
+    const PARTS: [(u32, &str); 13] = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+    let mut out = String::new();
+    for (value, letters) in PARTS {
+        while n >= value {
+            out += letters;
+            n -= value;
+        }
+    }
+    out
 }
 
 /// Eine Zahl von 0 bis 15 als Ziffernfolge ihrer Binärdarstellung: 5 → 101.
@@ -343,7 +414,70 @@ impl TaskGenerator for BinaryNumbers {
             Task { prompt: format!("{n:04b}₂ = ?"), answer: n, fact, time_limit: 10.0, hint, ..Default::default() }
         } else {
             let answer = binary_digits(n);
-            Task { prompt: format!("{n} = ?₂"), answer, fact, time_limit: 12.0, binary: true, hint }
+            Task { prompt: format!("{n} = ?₂"), answer, fact, time_limit: 12.0, style: AnswerStyle::Binary, hint }
+        }
+    }
+
+    fn record(&mut self, task: &Task, outcome: &Outcome) {
+        reweigh(&mut self.weights[task.fact], outcome);
+    }
+
+    fn weights(&self) -> Vec<f32> {
+        self.weights.clone()
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        restore(&mut self.weights, weights);
+    }
+}
+
+/// Römische Zahlen von 1 bis 100 in beide Richtungen: „XLVII = ?“ wird mit Ziffern beantwortet,
+/// „47 = ?“ mit den Buchstabentasten I, V, X, L und C. Leichte Zahlen (die Grundzeichen und ihre
+/// einfachen Wiederholungen wie III oder XX) kommen anfangs seltener; Zahlen mit IV, IX, XL und XC
+/// sind die eigentliche Übung.
+pub struct RomanNumerals {
+    weights: Vec<f32>,
+    last: Option<usize>,
+}
+
+impl RomanNumerals {
+    const HINT: &'static str = "I = 1 · V = 5 · X = 10 · L = 50 · C = 100";
+
+    pub fn new() -> Self {
+        let weights = (0..200)
+            .map(|fact| {
+                let n = fact as u32 / 2 + 1;
+                let letters = roman(n);
+                let subtractive = ["IV", "IX", "XL", "XC"].iter().any(|s| letters.contains(s));
+                if subtractive {
+                    1.4
+                } else if letters.len() <= 2 {
+                    0.4
+                } else {
+                    1.0
+                }
+            })
+            .collect();
+        Self { weights, last: None }
+    }
+}
+
+impl TaskGenerator for RomanNumerals {
+    fn next(&mut self, rng: &mut Rng) -> Task {
+        let fact = pick_weighted(&self.weights, |i| Some(i) == self.last, rng);
+        self.last = Some(fact);
+        let n = fact as u32 / 2 + 1;
+        if fact % 2 == 0 {
+            Task { prompt: format!("{} = ?", roman(n)), answer: n, fact, time_limit: 10.0, hint: Some(Self::HINT), ..Default::default() }
+        } else {
+            Task {
+                prompt: format!("{n} = ?"),
+                answer: n,
+                fact,
+                time_limit: 14.0,
+                style: AnswerStyle::Roman,
+                hint: Some(Self::HINT),
+            }
         }
     }
 
@@ -733,7 +867,8 @@ fn spawn_popup(mut commands: Commands, active: Res<ActiveTask>) {
         BackgroundColor(GOOD),
         ChildOf(bar),
     ));
-    let hint = if active.chip { "Nummernblock · Enter · Zeitlupen-Chip: +50 % Zeit" } else { "Nummernblock · Enter" };
+    let keys = active.task.input_hint();
+    let hint = if active.chip { format!("{keys} · Enter · Zeitlupen-Chip: +50 % Zeit") } else { format!("{keys} · Enter") };
     commands.spawn((HintText, Text::new(hint), TextColor(DIM), font(16.0), ChildOf(panel)));
 }
 
@@ -781,10 +916,10 @@ fn type_answer(
     mut next: ResMut<NextState<GamePhase>>,
 ) {
     active.elapsed += time.delta_secs();
-    if let Some(digit) = read_digit(&keys)
-        && active.input.len() < MAX_DIGITS
+    if let Some(key) = active.task.read_key(&keys)
+        && active.input.len() < active.task.max_len()
     {
-        active.input.push(digit);
+        active.input.push(key);
     }
     if keys.just_pressed(KeyCode::Backspace) {
         active.input.pop();
@@ -797,7 +932,7 @@ fn type_answer(
 
     let submitted = (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter)) && !active.input.is_empty();
     let outcome = if submitted {
-        if active.input.parse::<u32>() == Ok(active.task.answer) {
+        if active.task.check(&active.input) {
             Outcome::Correct { remaining_share: share }
         } else {
             Outcome::Wrong
@@ -1013,11 +1148,12 @@ mod new_topic_tests {
             let task = topic.next(&mut rng);
             let solution = task.solution();
             let (left, right) = solution.split_once(" = ").unwrap();
-            let (bits, decimal) = if task.binary { (right, left) } else { (left, right) };
+            let binary = task.style == AnswerStyle::Binary;
+            let (bits, decimal) = if binary { (right, left) } else { (left, right) };
             let bits = bits.trim_end_matches('₂');
             assert_eq!(bits.len(), 4, "{solution}");
             assert_eq!(u32::from_str_radix(bits, 2).unwrap(), decimal.parse::<u32>().unwrap(), "{solution}");
-            if task.binary {
+            if binary {
                 binary_answers += 1;
                 // Führende Nullen darf man weglassen: „101“ ist dieselbe Eingabe wie „0101“.
                 assert_eq!(bits.parse::<u32>().unwrap(), task.answer);
@@ -1025,5 +1161,45 @@ mod new_topic_tests {
         }
         assert!((700..1300).contains(&binary_answers), "{binary_answers}");
         assert_eq!(from_binary_digits(binary_digits(13)), Some(13));
+    }
+}
+
+#[cfg(test)]
+mod roman_tests {
+    use super::*;
+
+    #[test]
+    fn roemische_zahlen() {
+        assert_eq!(roman(4), "IV");
+        assert_eq!(roman(9), "IX");
+        assert_eq!(roman(14), "XIV");
+        assert_eq!(roman(40), "XL");
+        assert_eq!(roman(49), "XLIX");
+        assert_eq!(roman(88), "LXXXVIII");
+        assert_eq!(roman(90), "XC");
+        assert_eq!(roman(99), "XCIX");
+        assert_eq!(roman(100), "C");
+        let longest = (1..=100).map(|n| roman(n).len()).max().unwrap();
+        assert!(longest <= 9);
+    }
+
+    #[test]
+    fn roemische_aufgaben() {
+        let mut rng = Rng::default();
+        let mut topic = RomanNumerals::new();
+        let mut typed = 0;
+        for _ in 0..2000 {
+            let task = topic.next(&mut rng);
+            assert!((1..=100).contains(&task.answer));
+            assert!(task.check(&task.show(task.answer)), "{}", task.prompt);
+            if task.style == AnswerStyle::Roman {
+                typed += 1;
+                // Nur die übliche Schreibweise zählt.
+                assert!(!task.check(&"I".repeat(task.answer as usize)) || task.answer <= 3);
+            } else {
+                assert!(task.prompt.starts_with(&roman(task.answer)));
+            }
+        }
+        assert!((700..1300).contains(&typed), "{typed}");
     }
 }

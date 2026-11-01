@@ -3,7 +3,9 @@
 //! Wackler, Pfeile und Kreisel, auf der Gitterstation warten Geschütze am Rand, Teiler, die in
 //! Splitter zerfallen, und Sucher, die dem Schiff nachsteuern. Am Gasriesen treiben Minen, die
 //! hochgehen, wenn man ihnen zu nahe kommt, und Kreuzer feuern Fächer. Im Datenkern sind Bits
-//! nur verwundbar, solange sie eine 1 zeigen, und Datenpakete rasen in Strömen vorbei.
+//! nur verwundbar, solange sie eine 1 zeigen, und Datenpakete rasen in Strömen vorbei. Am
+//! Mars-Außenposten marschieren Legionäre in Schildkröten-Formation: Nur wer vorn niemanden mehr
+//! vor sich hat, ist verwundbar.
 //!
 //! Jede Frachtdrohne zeigt in ihrem Inneren und auf einem Schild darunter, was sie geladen hat.
 
@@ -49,6 +51,9 @@ const MINE_FUSE: f32 = 0.7;
 /// So lange zeigt ein Bit seine 0 oder 1, bevor es umkippt.
 const BIT_FLIP: f32 = 1.4;
 const PACKET_SPEED: f32 = 300.0;
+const LEGION_SPEED: f32 = 95.0;
+/// Abstand der Legionäre in der Schildkröte.
+const LEGION_GAP: f32 = 44.0;
 /// So lange steigt der Schriftzug nach einer ausgelöschten Welle auf.
 const BANNER_TIME: f32 = 1.3;
 
@@ -63,7 +68,7 @@ impl Plugin for EnemyPlugin {
             .add_systems(Update, clear_on_start)
             .add_systems(
                 Update,
-                (spawn_waves, fly, follow_cargo, shoot, ram_player, flash, destroy, rise_banners).chain().in_set(Gameplay),
+                (spawn_waves, fly, testudo, follow_cargo, shoot, ram_player, flash, destroy, rise_banners).chain().in_set(Gameplay),
             );
     }
 }
@@ -93,6 +98,8 @@ pub enum EnemyKind {
     Bit,
     /// Schnell, in Strömen auf einer gemeinsamen Wellenbahn.
     Packet,
+    /// Marschiert in der Schildkröte; gedeckt, solange ein Kamerad direkt vor ihm steht.
+    Legionary,
 }
 
 /// Wie eine Welle aufgebaut ist.
@@ -122,6 +129,8 @@ pub enum Formation {
     Nibbles,
     /// Ein Strom aus Datenpaketen
     Stream,
+    /// Legionäre in Schildkröten-Formation, drei mal drei
+    Testudo,
 }
 
 impl EnemyKind {
@@ -139,6 +148,7 @@ impl EnemyKind {
             Self::Cruiser => 10.0,
             Self::Bit => 2.0,
             Self::Packet => 1.0,
+            Self::Legionary => 2.0,
         }
     }
 
@@ -156,6 +166,7 @@ impl EnemyKind {
             Self::Cruiser => 400,
             Self::Bit => 120,
             Self::Packet => 60,
+            Self::Legionary => 110,
         }
     }
 
@@ -163,7 +174,7 @@ impl EnemyKind {
     fn credits(self) -> u32 {
         match self {
             Self::Shard | Self::Packet => 1,
-            Self::Wobbler | Self::Spinner | Self::Seeker | Self::Mine | Self::Bit => 2,
+            Self::Wobbler | Self::Spinner | Self::Seeker | Self::Mine | Self::Bit | Self::Legionary => 2,
             Self::Dart | Self::Splitter => 3,
             Self::Turret => 4,
             Self::Freighter | Self::Cruiser => 6,
@@ -184,6 +195,7 @@ impl EnemyKind {
             Self::Cruiser => 28.0,
             Self::Bit => 17.0,
             Self::Packet => 10.0,
+            Self::Legionary => 17.0,
         }
     }
 
@@ -250,6 +262,19 @@ impl EnemyKind {
                 .open(&[Vec2::new(-20.0, 12.0), Vec2::new(-30.0, 20.0)])
                 .open(&[Vec2::new(-20.0, -12.0), Vec2::new(-30.0, -20.0)]),
             Self::Bit => bit_shape(false),
+            // Ein gewölbter Schild nach vorn, dahinter der Helm mit Busch.
+            Self::Legionary => Shape::new(RED)
+                .closed(&[
+                    Vec2::new(-16.0, -18.0),
+                    Vec2::new(-12.0, -21.0),
+                    Vec2::new(-4.0, -21.0),
+                    Vec2::new(-4.0, 21.0),
+                    Vec2::new(-12.0, 21.0),
+                    Vec2::new(-16.0, 18.0),
+                ])
+                .closed(&polygon(4, 3.0, 0.0).iter().map(|p| *p + Vec2::new(-10.0, 0.0)).collect::<Vec<_>>())
+                .closed(&polygon(6, 7.0, 0.0).iter().map(|p| *p + Vec2::new(6.0, 4.0)).collect::<Vec<_>>())
+                .open(&[Vec2::new(2.0, 11.0), Vec2::new(8.0, 17.0), Vec2::new(14.0, 11.0)]),
             Self::Packet => Shape::new(MAGENTA)
                 .closed(&polygon(4, 10.0, 0.0))
                 .open(&[Vec2::new(-4.0, 0.0), Vec2::new(4.0, 0.0)]),
@@ -591,6 +616,16 @@ fn spawn_waves(
                 members.push((packet, Vec2::new(spawn_x + i as f32 * 45.0, base.y)));
             }
         }
+        // Drei mal drei Legionäre; die vorderste Reihe schützt die dahinter.
+        Formation::Testudo => {
+            let y = rng.range(-170.0, 170.0);
+            for column in 0..3 {
+                for row in 0..3 {
+                    let pos = Vec2::new(spawn_x + column as f32 * LEGION_GAP, y + (row as f32 - 1.0) * LEGION_GAP);
+                    members.push((Enemy::new(EnemyKind::Legionary, &mut rng), pos));
+                }
+            }
+        }
         // Sechs Sucher, verstreut über die ganze Höhe
         Formation::Seekers => {
             for i in 0..6 {
@@ -656,6 +691,8 @@ fn fly(
             EnemyKind::Cruiser => Vec2::new(-105.0, (enemy.age * 0.8 + enemy.wave_phase).sin() * 25.0),
             EnemyKind::Bit => Vec2::new(-130.0, (enemy.age * 1.5 + enemy.wave_phase).cos() * 30.0),
             EnemyKind::Packet => Vec2::new(-PACKET_SPEED, 0.0),
+            // Im Gleichschritt: alle mit derselben Welle, damit die Formation zusammenbleibt.
+            EnemyKind::Legionary => Vec2::new(-LEGION_SPEED, (enemy.age * 1.2).sin() * 25.0),
         };
         transform.translation += (vel * dt).extend(0.0);
         match enemy.kind {
@@ -707,6 +744,29 @@ fn fly(
                 waves.gone(wave, true);
             }
             commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Schildkröte: Ein Legionär ist gedeckt, solange ein Kamerad aus seiner Welle direkt vor ihm
+/// (weiter links, auf gleicher Höhe) marschiert. Gedeckte leuchten schwächer, Schüsse prallen ab.
+fn testudo(mut legionaries: Query<(Entity, &mut Enemy, &Transform)>) {
+    let positions: Vec<(Entity, Option<u32>, Vec2)> = legionaries
+        .iter()
+        .filter(|(_, enemy, _)| enemy.kind == EnemyKind::Legionary && enemy.health > 0.0)
+        .map(|(entity, enemy, transform)| (entity, enemy.wave, transform.translation.truncate()))
+        .collect();
+    for (entity, mut enemy, transform) in &mut legionaries {
+        if enemy.kind != EnemyKind::Legionary {
+            continue;
+        }
+        let pos = transform.translation.truncate();
+        let covered = positions.iter().any(|(other, wave, at)| {
+            *other != entity && *wave == enemy.wave && (at.y - pos.y).abs() < 20.0 && at.x < pos.x - 10.0 && pos.x - at.x < LEGION_GAP * 1.5
+        });
+        if covered != enemy.shielded {
+            enemy.shielded = covered;
+            enemy.color = if covered { scaled(RED, 0.22) } else { scaled(RED, 1.3) };
         }
     }
 }

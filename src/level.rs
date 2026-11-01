@@ -5,10 +5,10 @@
 use bevy::prelude::*;
 
 use crate::enemy::Formation;
-use crate::neon::{GREEN, MAGENTA, ORANGE, VIOLET};
+use crate::neon::{GOLD, GREEN, MAGENTA, ORANGE, VIOLET};
 use crate::save::Mastery;
 use crate::shipyard::Credits;
-use crate::task::{BigTimesTable, BinaryNumbers, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
+use crate::task::{BigTimesTable, BinaryNumbers, RomanNumerals, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
 use crate::{AppState, GamePhase, Gameplay};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
@@ -63,6 +63,8 @@ pub enum BossStyle {
     Storm,
     /// Ein Chip mit Anschlussbeinchen
     Processor,
+    /// Ein Legionärsschild mit Helmbusch
+    Shield,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -73,6 +75,8 @@ pub enum Backdrop {
     GasGiant,
     /// Herabrieselnde Datenströme
     DataRain,
+    /// Ein roter Planet mit Kratern
+    RedPlanet,
 }
 
 fn small_times_table() -> Box<dyn TaskGenerator> {
@@ -91,7 +95,11 @@ fn binary_numbers() -> Box<dyn TaskGenerator> {
     Box::new(BinaryNumbers::new())
 }
 
-pub const LEVELS: [LevelDef; 4] = [
+fn roman_numerals() -> Box<dyn TaskGenerator> {
+    Box::new(RomanNumerals::new())
+}
+
+pub const LEVELS: [LevelDef; 5] = [
     LevelDef {
         world: "Neonnebel",
         topic: "Kleines 1×1",
@@ -153,6 +161,24 @@ pub const LEVELS: [LevelDef; 4] = [
             Formation::Stream,
             Formation::Turrets,
             Formation::Splitters,
+        ],
+    },
+    LevelDef {
+        world: "Mars-Außenposten",
+        topic: "Römische Zahlen",
+        grid: LinearRgba::rgb(0.6, 0.12, 0.05),
+        backdrop: Backdrop::RedPlanet,
+        boss: BossDef { name: "Der Zenturio", color: GOLD, style: BossStyle::Shield },
+        make_topic: roman_numerals,
+        // Legionäre in Schildkröten-Formation, dazu Geschütze, Pfeile und Kreuzer.
+        formations: &[
+            Formation::Testudo,
+            Formation::Testudo,
+            Formation::Arrow,
+            Formation::Turrets,
+            Formation::Testudo,
+            Formation::Pincer,
+            Formation::Cruisers,
         ],
     },
 ];
