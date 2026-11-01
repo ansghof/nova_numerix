@@ -128,6 +128,32 @@ fn draw(mut gizmos: Gizmos, time: Res<Time>, field: Res<Starfield>, level: Res<C
                 gizmos.line_2d(tilt.transform_point(dir * inner), tilt.transform_point(dir * outer), dim);
             }
         }
+        Backdrop::MirrorStation => {
+            // Die Spiegelachse als doppelte Linie …
+            let axis = LinearRgba::rgb(0.25, 0.27, 0.4);
+            for y in [-3.0, 3.0] {
+                gizmos.line_2d(Vec2::new(-SPAN, y), Vec2::new(SPAN, y), axis);
+            }
+            // … darüber eine Station, darunter dieselbe gespiegelt und blasser.
+            let station = [
+                Vec2::new(-420.0, 330.0),
+                Vec2::new(-420.0, 250.0),
+                Vec2::new(-300.0, 250.0),
+                Vec2::new(-300.0, 190.0),
+                Vec2::new(-180.0, 190.0),
+                Vec2::new(-180.0, 270.0),
+                Vec2::new(-60.0, 270.0),
+                Vec2::new(-60.0, 330.0),
+            ];
+            let drift = Vec2::new(-(time.elapsed_secs() * 12.0) % (2.0 * SPAN), 0.0) + Vec2::new(SPAN * 0.6, 0.0);
+            for (mirror, shade) in [(1.0, 0.32), (-1.0, 0.16)] {
+                let color = LinearRgba::rgb(0.8 * shade, 0.85 * shade, 1.2 * shade);
+                let points: Vec<Vec2> = station.iter().map(|p| Vec2::new(p.x, p.y * mirror) + drift).collect();
+                gizmos.linestrip_2d(points, color);
+                gizmos.circle_2d(Vec2::new(-240.0, 120.0 * mirror) + drift, 40.0, color);
+                gizmos.line_2d(Vec2::new(-240.0, 160.0 * mirror) + drift, Vec2::new(-240.0, 190.0 * mirror) + drift, color);
+            }
+        }
         Backdrop::DataRain => {
             // Senkrechte Datenströme, die langsam herabrieseln.
             let t = time.elapsed_secs();

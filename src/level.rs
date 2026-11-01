@@ -5,10 +5,10 @@
 use bevy::prelude::*;
 
 use crate::enemy::Formation;
-use crate::neon::{GOLD, GREEN, ICE, MAGENTA, ORANGE, TEAL, VIOLET};
+use crate::neon::{GOLD, GREEN, ICE, MAGENTA, ORANGE, SILVER, TEAL, VIOLET};
 use crate::save::Mastery;
 use crate::shipyard::Credits;
-use crate::task::{BigTimesTable, BinaryNumbers, NegativeNumbers, ReducingFractions, RomanNumerals, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
+use crate::task::{BigTimesTable, BinaryNumbers, DecimalFractions, NegativeNumbers, ReducingFractions, RomanNumerals, FAST_SHARE, Outcome, SmallTimesTable, Squares, TaskGenerator, Topic};
 use crate::{AppState, GamePhase, Gameplay};
 
 /// Länge eines Levels bis zum Boss in Sekunden Spielzeit.
@@ -69,6 +69,8 @@ pub enum BossStyle {
     Crystal,
     /// Ein Rad aus Tortenstücken mit breitem Außenring
     Wheel,
+    /// Eine waagerecht geteilte Raute, oben und unten gespiegelt
+    Mirror,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -85,6 +87,8 @@ pub enum Backdrop {
     IceMoon,
     /// Ein schräg stehender Riesenring mit Segmenten um einen kleinen Planeten
     RingWorld,
+    /// Eine Spiegelachse quer durchs Bild, darüber eine Station und darunter ihr Spiegelbild
+    MirrorStation,
 }
 
 fn small_times_table() -> Box<dyn TaskGenerator> {
@@ -115,7 +119,11 @@ fn reducing_fractions() -> Box<dyn TaskGenerator> {
     Box::new(ReducingFractions::new())
 }
 
-pub const LEVELS: [LevelDef; 7] = [
+fn decimal_fractions() -> Box<dyn TaskGenerator> {
+    Box::new(DecimalFractions::new())
+}
+
+pub const LEVELS: [LevelDef; 8] = [
     LevelDef {
         world: "Neonnebel",
         topic: "Kleines 1×1",
@@ -231,6 +239,24 @@ pub const LEVELS: [LevelDef; 7] = [
             Formation::Wheel,
             Formation::Ring,
             Formation::Seekers,
+        ],
+    },
+    LevelDef {
+        world: "Spiegelstation",
+        topic: "Brüche & Dezimalzahlen",
+        grid: LinearRgba::rgb(0.35, 0.38, 0.55),
+        backdrop: Backdrop::MirrorStation,
+        boss: BossDef { name: "Der Spiegel", color: SILVER, style: BossStyle::Mirror },
+        make_topic: decimal_fractions,
+        // Zwillinge fliegen spiegelbildlich; wer einen trifft, trifft auch den anderen.
+        formations: &[
+            Formation::Twins,
+            Formation::Twins,
+            Formation::Pincer,
+            Formation::Twins,
+            Formation::Wheel,
+            Formation::Arrow,
+            Formation::Cruisers,
         ],
     },
 ];

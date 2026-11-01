@@ -249,6 +249,7 @@ stehen die Stellenwerte 8 · 4 · 2 · 1.
 | 5 | Mars-Außenposten | Römische Zahlen bis 100 (beide Richtungen) | Der Zenturio: Legionärsschild mit Helmbusch, Platten zeigen römische Zahlen | Legionäre in Schildkröten-Formation (3×3): nur wer vorn niemanden vor sich hat, ist verwundbar |
 | 6 | Eismond | Addition mit negativen Zahlen (−10 bis 10) | Der Frostkristall: Eiskristall mit sechs verzweigten Armen; unter den falschen Platten steht immer das Ergebnis mit falschem Vorzeichen | Frostlinge pendeln als Welle über die Nulllinie: oben (im Plus, mit „+“) verwundbar, unten (im Minus, dunkel mit „−“) gepanzert |
 | 7 | Ringwelt | Brüche kürzen (Nenner bis 6, erweitert mit 2 bis 5) | Die Ringnabe: Rad aus acht Tortenstücken mit breitem Außenring; falsche Platten sind gekürzte Brüche knapp daneben | Räder: eine Nabe mit sechs kreisenden Ringstücken; die Nabe ist gepanzert, bis alle Stücke ab sind |
+| 8 | Spiegelstation | Brüche ↔ Dezimalzahlen (beide Richtungen, höchstens zwei Nachkommastellen) | Der Spiegel: waagerecht geteilte Raute, oben und unten gespiegelt; falsche Dezimalzahlen enthalten den Fehler „Zähler und Nenner hintereinander“ (1/4 → 0,14) | Zwillinge fliegen spiegelbildlich zur Achse und teilen sich ihr Leben: wer einen trifft, trifft beide |
 
 **Römische Eingabe:** „XLVII = ?“ wird mit Ziffern beantwortet, „47 = ?“ mit den Buchstabentasten
 I, V, X, L, C. Es zählt nur die übliche Schreibweise (XL, nicht XXXX). Unter jeder Aufgabe steht
@@ -269,6 +270,16 @@ Bruchstrich: „/“ auf dem Nummernblock, Umschalt+7 oder einfach die Leertaste
 geht erst nach dem Zähler und nur einmal. Mit 2 erweiterte Brüche sind am leichtesten und kommen
 anfangs seltener. Merkhilfe: „Zähler und Nenner durch dieselbe Zahl teilen“. Hintergrund: ein
 kleiner Planet mit einem riesigen, schräg stehenden Segmentring; Musik: hell in B-Dur.
+
+**Brüche und Dezimalzahlen:** nur Nenner, die höchstens zwei Nachkommastellen ergeben: Halbe,
+Viertel, Fünftel, Zehntel und Zwanzigstel (19 echte Brüche), dazu 3/2, 5/2, 5/4, 7/4, 6/5 und
+7/5. Achtel (0,125) fallen damit weg, Fünfundzwanzigstel und Fünfzigstel wären zu schwer. „3/4 = ?“
+wird als Dezimalzahl getippt, das Komma über Komma, Punkt oder die Komma-Taste des Nummernblocks;
+es zählt der Wert (0,50 ist so richtig wie 0,5, „,5“ auch). „0,75 = ?“ wird als ganz gekürzter
+Bruch getippt. Halbe und Viertel kommen anfangs seltener, Zwanzigstel öfter. Merkhilfe:
+„1/2 = 0,5 · 1/4 = 0,25 · 1/5 = 0,2 · 1/10 = 0,1“. Hintergrund: eine Spiegelachse, darüber eine
+Station und darunter ihr blasseres Spiegelbild; Musik: D-Dur, das Arpeggio läuft hinauf und
+gespiegelt wieder herab.
 
 Hintergründe: am Gasriesen ein gestreifter Planet, im Datenkern herabrieselnde Datenströme.
 Addition und Subtraktion bis 20 sind für 10- bis 15-Jährige zu leicht und entfallen vorerst.

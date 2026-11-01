@@ -112,6 +112,7 @@ impl Task {
                 let (numerator, denominator) = split_fraction(value);
                 format!("{numerator}/{denominator}")
             }
+            AnswerStyle::Decimal => decimal(value),
         }
     }
 
@@ -140,6 +141,12 @@ impl Task {
             {
                 Some('/')
             }
+            // Komma oder Punkt, auch auf dem Nummernblock
+            AnswerStyle::Decimal
+                if keys.any_just_pressed([KeyCode::Comma, KeyCode::Period, KeyCode::NumpadDecimal, KeyCode::NumpadComma]) =>
+            {
+                Some(',')
+            }
             _ => read_digit(keys),
         }
     }
@@ -153,6 +160,8 @@ impl Task {
                 '-' => input.is_empty(),
                 // Ein Bruchstrich, und erst nach dem Zähler.
                 '/' => !input.is_empty() && !input.contains('/'),
+                // Ein Komma; „,75“ ohne Null davor gilt auch.
+                ',' => !input.contains(','),
                 _ => true,
             };
             if fits && input.len() < self.max_len() {
@@ -170,6 +179,7 @@ impl Task {
             AnswerStyle::Roman => "Tasten I V X L C",
             AnswerStyle::Signed => "Ziffern · Minus-Taste",
             AnswerStyle::Fraction => "Ziffern · Bruchstrich: / oder Leertaste",
+            AnswerStyle::Decimal => "Ziffern · Komma",
             _ => "Nummernblock",
         }
     }
@@ -178,7 +188,7 @@ impl Task {
     fn max_len(&self) -> usize {
         match self.style {
             AnswerStyle::Roman => 9,
-            AnswerStyle::Fraction => 5,
+            AnswerStyle::Fraction | AnswerStyle::Decimal => 5,
             _ => 4,
         }
     }
@@ -189,6 +199,8 @@ impl Task {
         match self.style {
             AnswerStyle::Roman => input == self.show(self.answer),
             AnswerStyle::Fraction => input == self.show(self.answer),
+            // Bei Dezimalzahlen zählt der Wert: 0,50 ist so richtig wie 0,5.
+            AnswerStyle::Decimal => parse_decimal(input) == Some(self.answer),
             _ => input.parse::<i32>() == Ok(self.answer),
         }
     }
@@ -207,6 +219,32 @@ pub enum AnswerStyle {
     Signed,
     /// Ein gekürzter Bruch wie „2/3“; die Antwort ist mit [`fraction`] kodiert.
     Fraction,
+    /// Eine Dezimalzahl mit höchstens zwei Nachkommastellen; die Antwort zählt in Hundertsteln.
+    Decimal,
+}
+
+/// Hundertstel als Dezimalzahl mit Komma, ohne überflüssige Nullen: 75 → „0,75“, 150 → „1,5“.
+pub fn decimal(hundredths: i32) -> String {
+    let (whole, part) = (hundredths / 100, hundredths % 100);
+    if part == 0 {
+        whole.to_string()
+    } else if part % 10 == 0 {
+        format!("{whole},{}", part / 10)
+    } else {
+        format!("{whole},{part:02}")
+    }
+}
+
+/// Umkehrung von [`decimal`]: „0,75“ und „,75“ → 75; `None` bei mehr als zwei Nachkommastellen.
+pub fn parse_decimal(input: &str) -> Option<i32> {
+    let (whole, part) = input.split_once(',').unwrap_or((input, ""));
+    let whole: i32 = if whole.is_empty() { 0 } else { whole.parse().ok()? };
+    let part = part.trim_end_matches('0');
+    if part.len() > 2 || !part.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let part: i32 = format!("{part:0<2}").parse().ok()?;
+    Some(whole * 100 + part)
 }
 
 /// Ein Bruch als eine Zahl, damit er wie jede andere Antwort durchs Spiel wandern kann:
@@ -666,6 +704,83 @@ impl TaskGenerator for ReducingFractions {
             time_limit: 12.0,
             style: AnswerStyle::Fraction,
             hint: Some(Self::HINT),
+        }
+    }
+
+    fn record(&mut self, task: &Task, outcome: &Outcome) {
+        reweigh(&mut self.weights[task.fact], outcome);
+    }
+
+    fn weights(&self) -> Vec<f32> {
+        self.weights.clone()
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        restore(&mut self.weights, weights);
+    }
+}
+
+/// Brüche und Dezimalzahlen in beide Richtungen: „3/4 = ?“ wird als Dezimalzahl mit Komma
+/// beantwortet, „0,75 = ?“ als gekürzter Bruch. Nur Nenner, die höchstens zwei Nachkommastellen
+/// ergeben (Halbe, Viertel, Fünftel, Zehntel, Zwanzigstel), dazu ein paar unechte Brüche wie 5/4.
+/// Halbe und Viertel kennt man meist schon; sie kommen anfangs seltener, Zwanzigstel öfter.
+pub struct DecimalFractions {
+    fractions: Vec<(i32, i32)>,
+    weights: Vec<f32>,
+    last: Option<usize>,
+}
+
+impl DecimalFractions {
+    const HINT: &'static str = "1/2 = 0,5 · 1/4 = 0,25 · 1/5 = 0,2 · 1/10 = 0,1";
+
+    pub fn new() -> Self {
+        let mut fractions = Vec::new();
+        for denominator in [2, 4, 5, 10, 20] {
+            for numerator in (1..denominator).filter(|n| gcd(*n, denominator) == 1) {
+                fractions.push((numerator, denominator));
+            }
+        }
+        fractions.extend([(3, 2), (5, 2), (5, 4), (7, 4), (6, 5), (7, 5)]);
+        let weights = fractions
+            .iter()
+            .flat_map(|(_, denominator)| {
+                let weight = match denominator {
+                    2 | 4 => 0.6,
+                    20 => 1.2,
+                    _ => 1.0,
+                };
+                [weight, weight]
+            })
+            .collect();
+        Self { fractions, weights, last: None }
+    }
+}
+
+impl TaskGenerator for DecimalFractions {
+    fn next(&mut self, rng: &mut Rng) -> Task {
+        let fact = pick_weighted(&self.weights, |i| Some(i) == self.last, rng);
+        self.last = Some(fact);
+        let (numerator, denominator) = self.fractions[fact / 2];
+        let hundredths = numerator * 100 / denominator;
+        let hint = Some(Self::HINT);
+        if fact % 2 == 0 {
+            Task {
+                prompt: format!("{numerator}/{denominator} = ?"),
+                answer: hundredths,
+                fact,
+                time_limit: 11.0,
+                style: AnswerStyle::Decimal,
+                hint,
+            }
+        } else {
+            Task {
+                prompt: format!("{} = ?", decimal(hundredths)),
+                answer: fraction(numerator, denominator),
+                fact,
+                time_limit: 12.0,
+                style: AnswerStyle::Fraction,
+                hint,
+            }
         }
     }
 
@@ -1489,5 +1604,48 @@ mod fraction_tests {
             keys.clear();
         }
         assert_eq!(input, "2/3");
+    }
+}
+
+#[cfg(test)]
+mod decimal_tests {
+    use super::*;
+
+    #[test]
+    fn dezimalzahlen_schreiben_und_lesen() {
+        assert_eq!(decimal(75), "0,75");
+        assert_eq!(decimal(150), "1,5");
+        assert_eq!(decimal(5), "0,05");
+        assert_eq!(decimal(200), "2");
+        assert_eq!(parse_decimal("0,75"), Some(75));
+        assert_eq!(parse_decimal(",5"), Some(50));
+        assert_eq!(parse_decimal("0,50"), Some(50));
+        assert_eq!(parse_decimal("1,25"), Some(125));
+        assert_eq!(parse_decimal("0,125"), None);
+    }
+
+    #[test]
+    fn brueche_und_dezimalzahlen() {
+        let mut rng = Rng::default();
+        let mut topic = DecimalFractions::new();
+        let mut decimals = 0;
+        for _ in 0..2000 {
+            let task = topic.next(&mut rng);
+            let (left, _) = task.prompt.split_once(" = ").unwrap();
+            let (fraction_text, decimal_text) = if task.style == AnswerStyle::Decimal {
+                decimals += 1;
+                (left.to_string(), task.show(task.answer))
+            } else {
+                (task.show(task.answer), left.to_string())
+            };
+            let (n, d) = fraction_text.split_once('/').unwrap();
+            let (n, d): (i32, i32) = (n.parse().unwrap(), d.parse().unwrap());
+            let value = parse_decimal(&decimal_text).unwrap();
+            // Höchstens zwei Nachkommastellen, und der Wert stimmt genau.
+            assert_eq!(n * 100, value * d, "{}", task.prompt);
+            assert_eq!(gcd(n, d), 1);
+            assert!(task.check(&task.show(task.answer)));
+        }
+        assert!((700..1300).contains(&decimals), "{decimals}");
     }
 }

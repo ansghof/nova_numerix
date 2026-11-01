@@ -224,6 +224,20 @@ fn body_shape(def: &BossDef) -> Shape {
         }
         return shape.closed(&core_ring);
     }
+    if def.style == BossStyle::Mirror {
+        // Der Spiegel: eine große Raute, waagerecht geteilt; oben und unten dieselben Zeichen,
+        // gespiegelt.
+        let mut shape = Shape::new(def.color)
+            .closed(&[Vec2::new(-110.0, 0.0), Vec2::new(40.0, -205.0), Vec2::new(180.0, 0.0), Vec2::new(40.0, 205.0)])
+            .open(&[Vec2::new(-30.0, 0.0), Vec2::new(180.0, 0.0)]);
+        for side in [1.0, -1.0] {
+            shape = shape
+                .open(&[Vec2::new(0.0, 40.0 * side), Vec2::new(40.0, 150.0 * side), Vec2::new(80.0, 40.0 * side)])
+                .open(&[Vec2::new(20.0, 40.0 * side), Vec2::new(40.0, 95.0 * side), Vec2::new(60.0, 40.0 * side)])
+                .closed(&polygon(4, 14.0, 0.0).iter().map(|p| *p + Vec2::new(120.0, 45.0 * side)).collect::<Vec<_>>());
+        }
+        return shape.closed(&core_ring);
+    }
     if def.style == BossStyle::Wheel {
         // Die Ringnabe: ein Rad aus acht Tortenstücken mit breitem Außenring.
         let center = Vec2::new(50.0, 0.0);
@@ -477,17 +491,41 @@ fn distractors(answer: i32, rng: &mut Rng) -> Vec<i32> {
 }
 
 /// Drei falsche, gekürzte Brüche in der Nähe der Lösung: Zähler oder Nenner um ein, zwei daneben.
-/// Ungekürzte Brüche mit demselben Wert kommen nicht vor, sie wären ja nicht falsch.
+/// Ungekürzte Brüche mit demselben Wert kommen nicht vor, sie wären ja nicht falsch. Ist die
+/// Lösung ein echter Bruch, sind es die falschen auch, und umgekehrt.
 fn fraction_distractors(answer: i32, rng: &mut Rng) -> Vec<i32> {
     let (n, d) = split_fraction(answer);
     let mut out = Vec::new();
-    for _ in 0..200 {
+    for _ in 0..300 {
         if out.len() == 3 {
             break;
         }
         let (cn, cd) = (n + rng.below(5) as i32 - 2, d + rng.below(5) as i32 - 2);
         let candidate = fraction(cn, cd);
-        if cn >= 1 && cn < cd && cd <= 9 && gcd(cn, cd) == 1 && candidate != answer && !out.contains(&candidate) {
+        let alike = (cn < cd) == (n < d);
+        if cn >= 1 && cd >= 2 && cn != cd && alike && gcd(cn, cd) == 1 && candidate != answer && !out.contains(&candidate) {
+            out.push(candidate);
+        }
+    }
+    out
+}
+
+/// Drei falsche Dezimalzahlen: der typische Fehler „Zähler und Nenner hintereinander“ (1/4 → 0,14),
+/// dazu Nachbarn im Abstand von 0,05, 0,1 oder 0,25.
+fn decimal_distractors(answer: i32, prompt: &str, rng: &mut Rng) -> Vec<i32> {
+    let mut out = Vec::new();
+    let glued = prompt.split(" = ").next().and_then(|f| f.replace('/', "").parse::<i32>().ok());
+    if let Some(glued) = glued.filter(|g| *g < 100 && *g != answer) {
+        out.push(glued);
+    }
+    const OFFSETS: [i32; 4] = [5, 10, 20, 25];
+    for _ in 0..100 {
+        if out.len() == 3 {
+            break;
+        }
+        let offset = OFFSETS[rng.below(OFFSETS.len())];
+        let candidate = if rng.chance(0.5) { answer + offset } else { answer - offset };
+        if candidate > 0 && candidate != answer && !out.contains(&candidate) {
             out.push(candidate);
         }
     }
@@ -521,6 +559,7 @@ fn new_round(boss: &mut Boss, plates: &mut Query<&mut Plate>, topic: &mut Topic,
         AnswerStyle::Binary => binary_distractors(task.answer, rng),
         AnswerStyle::Signed => signed_distractors(task.answer, rng),
         AnswerStyle::Fraction => fraction_distractors(task.answer, rng),
+        AnswerStyle::Decimal => decimal_distractors(task.answer, &task.prompt, rng),
         _ => distractors(task.answer, rng),
     };
     values.push(task.answer);

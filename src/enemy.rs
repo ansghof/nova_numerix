@@ -7,14 +7,15 @@
 //! Mars-Außenposten marschieren Legionäre in Schildkröten-Formation: Nur wer vorn niemanden mehr
 //! vor sich hat, ist verwundbar. Auf dem Eismond pendeln Frostlinge über die Nulllinie: Oben, im
 //! Plus, kann man sie treffen, unten, im Minus, sind sie gepanzert. In der Ringwelt kreisen
-//! Radstücke um eine Nabe, die erst verwundbar wird, wenn alle Stücke ab sind.
+//! Radstücke um eine Nabe, die erst verwundbar wird, wenn alle Stücke ab sind. In der
+//! Spiegelstation fliegen Zwillinge spiegelbildlich zur Achse: Wer einen trifft, trifft beide.
 //!
 //! Jede Frachtdrohne zeigt in ihrem Inneren und auf einem Schild darunter, was sie geladen hat.
 
 use bevy::prelude::*;
 
 use crate::hud::Score;
-use crate::neon::{GOLD, GREEN, ICE, LIME, MAGENTA, ORANGE, PINK, RED, Shape, TEAL, VIOLET, WHITE, polygon, scaled};
+use crate::neon::{GOLD, GREEN, ICE, LIME, MAGENTA, ORANGE, PINK, RED, SILVER, Shape, TEAL, VIOLET, WHITE, polygon, scaled};
 use crate::particles::Particles;
 use crate::player::{BUBBLE_RADIUS, HIT_RADIUS, Loadout, Player};
 use crate::rng::Rng;
@@ -69,6 +70,7 @@ const WHEEL_SPIN: f32 = 1.1;
 const WHEEL_RADIUS: f32 = 62.0;
 /// So viele Stücke hat ein Rad.
 const WHEEL_PIECES: usize = 6;
+const TWIN_SPEED: f32 = 150.0;
 /// So lange steigt der Schriftzug nach einer ausgelöschten Welle auf.
 const BANNER_TIME: f32 = 1.3;
 
@@ -121,6 +123,8 @@ pub enum EnemyKind {
     Hub,
     /// Ein Stück eines Rads
     Piece,
+    /// Fliegt spiegelbildlich zu seinem Zwilling; Schaden trifft beide.
+    Twin,
 }
 
 /// Wie eine Welle aufgebaut ist.
@@ -156,6 +160,8 @@ pub enum Formation {
     ZeroLine,
     /// Ein Rad: Nabe mit sechs Stücken
     Wheel,
+    /// Drei Zwillingspaare, gespiegelt an der Achse
+    Twins,
 }
 
 impl EnemyKind {
@@ -177,6 +183,7 @@ impl EnemyKind {
             Self::Frost => 2.0,
             Self::Hub => 5.0,
             Self::Piece => 1.0,
+            Self::Twin => 4.0,
         }
     }
 
@@ -198,6 +205,7 @@ impl EnemyKind {
             Self::Frost => 120,
             Self::Hub => 300,
             Self::Piece => 60,
+            Self::Twin => 100,
         }
     }
 
@@ -205,7 +213,7 @@ impl EnemyKind {
     fn credits(self) -> u32 {
         match self {
             Self::Shard | Self::Packet | Self::Piece => 1,
-            Self::Wobbler | Self::Spinner | Self::Seeker | Self::Mine | Self::Bit | Self::Legionary | Self::Frost => 2,
+            Self::Wobbler | Self::Spinner | Self::Seeker | Self::Mine | Self::Bit | Self::Legionary | Self::Frost | Self::Twin => 2,
             Self::Dart | Self::Splitter => 3,
             Self::Turret | Self::Hub => 4,
             Self::Freighter | Self::Cruiser => 6,
@@ -230,6 +238,7 @@ impl EnemyKind {
             Self::Frost => 17.0,
             Self::Hub => 22.0,
             Self::Piece => 15.0,
+            Self::Twin => 17.0,
         }
     }
 
@@ -297,6 +306,11 @@ impl EnemyKind {
                 .open(&[Vec2::new(-20.0, -12.0), Vec2::new(-30.0, -20.0)]),
             Self::Bit => bit_shape(false),
             Self::Frost => frost_shape(false),
+            // Ein Flügelpaar mit Auge; der untere Zwilling wird beim Spawnen gespiegelt.
+            Self::Twin => Shape::new(SILVER)
+                .closed(&[Vec2::new(-18.0, -4.0), Vec2::new(4.0, 18.0), Vec2::new(16.0, 8.0), Vec2::new(10.0, -4.0)])
+                .open(&[Vec2::new(-18.0, -4.0), Vec2::new(18.0, -4.0)])
+                .closed(&polygon(4, 3.5, 0.0).iter().map(|p| *p + Vec2::new(4.0, 5.0)).collect::<Vec<_>>()),
             // Eine Nabe mit Speichen
             Self::Hub => {
                 let mut shape = Shape::new(TEAL).closed(&polygon(12, 20.0, 0.0)).closed(&polygon(6, 7.0, 0.0));
@@ -720,6 +734,19 @@ fn spawn_waves(
                 members.push((piece, pos));
             }
         }
+        // Drei Paare; jeder Zwilling merkt sich in `center.y`, ob er oben (1) oder unten (−1) fliegt,
+        // und in `center.x` die Nummer seines Paars.
+        Formation::Twins => {
+            let base = rng.range(70.0, 200.0);
+            for pair in 0..3 {
+                for side in [1.0, -1.0] {
+                    let mut twin = Enemy::new(EnemyKind::Twin, &mut rng);
+                    twin.center = Vec2::new(pair as f32, side);
+                    twin.wave_phase = pair as f32 * 0.9;
+                    members.push((twin, Vec2::new(spawn_x + pair as f32 * 90.0, base * side)));
+                }
+            }
+        }
         // Sechs Sucher, verstreut über die ganze Höhe
         Formation::Seekers => {
             for i in 0..6 {
@@ -734,10 +761,10 @@ fn spawn_waves(
     let id = waves.start(members.len() as u32);
     for (mut enemy, pos) in members {
         enemy.wave = Some(id);
-        let flipped = enemy.kind == EnemyKind::Turret && pos.y > 0.0;
+        let flipped = (enemy.kind == EnemyKind::Turret && pos.y > 0.0) || (enemy.kind == EnemyKind::Twin && pos.y < 0.0);
         let entity = spawn_enemy(&mut commands, enemy, pos);
         if flipped {
-            // An der Decke hängt das Geschütz kopfüber.
+            // An der Decke hängt das Geschütz kopfüber; der untere Zwilling ist das Spiegelbild.
             commands.entity(entity).insert(Transform::from_translation(pos.extend(0.0)).with_scale(Vec3::new(1.0, -1.0, 1.0)));
         }
     }
@@ -790,6 +817,8 @@ fn fly(
             EnemyKind::Frost => Vec2::new(-FROST_SPEED, 0.0),
             // Nabe und Stücke folgen ihrem gemeinsamen Mittelpunkt, siehe unten.
             EnemyKind::Hub | EnemyKind::Piece => Vec2::ZERO,
+            // Beide Zwillinge rechnen dieselbe Bahn, der untere mit umgekehrtem Vorzeichen.
+            EnemyKind::Twin => Vec2::new(-TWIN_SPEED, (enemy.age * 1.6 + enemy.wave_phase).cos() * 110.0 * enemy.center.y),
         };
         transform.translation += (vel * dt).extend(0.0);
         match enemy.kind {
@@ -905,6 +934,34 @@ fn wheels(mut enemies: Query<&mut Enemy>) {
     }
 }
 
+/// Zwillinge teilen sich ihr Leben: Nach jedem Treffer haben beide den Stand des schwächeren.
+/// Läuft zu Beginn von [`destroy`], damit kein Treffer zwischen Abgleich und Abschuss fällt.
+fn share_twin_damage(enemies: &mut Query<(Entity, &mut Enemy, &Shape, &Transform)>) {
+    let mut lowest: Vec<(Option<u32>, i32, f32, f32)> = Vec::new();
+    for (_, enemy, _, _) in enemies.iter().filter(|(_, enemy, _, _)| enemy.kind == EnemyKind::Twin) {
+        let pair = enemy.center.x as i32;
+        match lowest.iter_mut().find(|(wave, p, _, _)| *wave == enemy.wave && *p == pair) {
+            Some(entry) => {
+                entry.2 = entry.2.min(enemy.health);
+                entry.3 = entry.3.max(enemy.flash);
+            }
+            None => lowest.push((enemy.wave, pair, enemy.health, enemy.flash)),
+        }
+    }
+    for (_, mut enemy, _, _) in enemies.iter_mut() {
+        if enemy.kind != EnemyKind::Twin {
+            continue;
+        }
+        let pair = enemy.center.x as i32;
+        if let Some((_, _, health, flash)) = lowest.iter().find(|(wave, p, _, _)| *wave == enemy.wave && *p == pair)
+            && *health < enemy.health
+        {
+            enemy.health = *health;
+            enemy.flash = *flash;
+        }
+    }
+}
+
 fn shoot(
     mut commands: Commands,
     time: Res<Time>,
@@ -1001,8 +1058,9 @@ fn destroy(
     mut shake: ResMut<Shake>,
     mut credits: ResMut<Credits>,
     field: Res<Playfield>,
-    enemies: Query<(Entity, &Enemy, &Shape, &Transform)>,
+    mut enemies: Query<(Entity, &mut Enemy, &Shape, &Transform)>,
 ) {
+    share_twin_damage(&mut enemies);
     for (entity, enemy, shape, transform) in &enemies {
         if enemy.health > 0.0 {
             continue;
